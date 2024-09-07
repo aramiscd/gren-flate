@@ -46,32 +46,32 @@ The idea of this array type is to store 4 bytes in one integer value. That means
 
 -}
 
-import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..))
 import Bytes.Encode as Encode
+import Math
 
 
 type ByteArray
     = ByteArray (Array Int) Int Int
 
 
-fromList : List Int -> ByteArray
+fromList : Array Int -> ByteArray
 fromList =
-    List.foldl push empty
+    Array.foldl push empty
 
 
-toList : ByteArray -> List Int
+toList : ByteArray -> Array Int
 toList barray =
-    foldr (::) [] barray
+    foldr Array.pushFirst [] barray
 
 
 appendBytes : Bytes -> ByteArray -> ByteArray
 appendBytes bytes ((ByteArray array finalSize finalBytes) as barray) =
     let
         decoder =
-            Decode.loop ( Bytes.width bytes, barray ) appendBytesHelp
+            Decode.loop { v1 = Bytes.length bytes, v2 = barray } appendBytesHelp
     in
     case Decode.decode decoder bytes of
         Just v ->
@@ -81,19 +81,19 @@ appendBytes bytes ((ByteArray array finalSize finalBytes) as barray) =
             barray
 
 
-appendBytesHelp ( remaining, (ByteArray array finalSize finalBytes) as bytearray ) =
+appendBytesHelp { v1 = remaining, v2 = (ByteArray array finalSize finalBytes) as bytearray } =
     if remaining >= 4 then
         Decode.unsignedInt32 BE
             |> Decode.map
                 (\new ->
-                    Decode.Loop ( remaining - 4, pushMany 4 new bytearray )
+                    Decode.Loop { v1 = remaining - 4, v2 = pushMany 4 new bytearray }
                 )
 
     else if remaining >= 1 then
         Decode.unsignedInt8
             |> Decode.map
                 (\new ->
-                    Decode.Loop ( remaining - 1, push new bytearray )
+                    Decode.Loop { v1 = remaining - 1, v2 = push new bytearray }
                 )
 
     else
@@ -238,26 +238,27 @@ repeat size value_ =
                 (Bitwise.or (Bitwise.shiftLeftBy 24 value) (Bitwise.shiftLeftBy 16 value))
                 (Bitwise.or (Bitwise.shiftLeftBy 8 value) value)
 
-        ( remainderSize, remainderBytes ) =
-            case size |> remainderBy 4 of
+        { v1 = remainderSize, v2 = remainderBytes } =
+            case size |> Math.remainderBy 4 of
                 0 ->
-                    ( 0, 0 )
+                    { v1 = 0, v2 = 0 }
 
                 1 ->
-                    ( 1, value )
+                    { v1 = 1, v2 = value }
 
                 2 ->
-                    ( 2, Bitwise.or (Bitwise.shiftLeftBy 8 value) value )
+                    { v1 = 2, v2 = Bitwise.or (Bitwise.shiftLeftBy 8 value) value }
 
                 3 ->
-                    ( 3, Bitwise.or (Bitwise.shiftLeftBy 16 value) (Bitwise.or (Bitwise.shiftLeftBy 8 value) value) )
+                    { v1 = 3, v2 = Bitwise.or (Bitwise.shiftLeftBy 16 value) (Bitwise.or (Bitwise.shiftLeftBy 8 value) value) }
 
                 _ ->
-                    ( 4
-                    , Bitwise.or
-                        (Bitwise.or (Bitwise.shiftLeftBy 24 value) (Bitwise.shiftLeftBy 16 value))
-                        (Bitwise.or (Bitwise.shiftLeftBy 8 value) value)
-                    )
+                    { v1 = 4
+                    , v2 =
+                        Bitwise.or
+                            (Bitwise.or (Bitwise.shiftLeftBy 24 value) (Bitwise.shiftLeftBy 16 value))
+                            (Bitwise.or (Bitwise.shiftLeftBy 8 value) value)
+                    }
     in
     ByteArray (Array.repeat (size // 4) asInt32) remainderSize remainderBytes
 
@@ -276,7 +277,7 @@ get : Int -> ByteArray -> Maybe Int
 get index (ByteArray array finalSize finalBytes) =
     let
         offset =
-            index |> remainderBy 4
+            index |> Math.remainderBy 4
     in
     if index >= Array.length array * 4 + finalSize then
         Nothing
@@ -325,7 +326,7 @@ set : Int -> Int -> ByteArray -> ByteArray
 set index value ((ByteArray array finalSize finalBytes) as input) =
     let
         offset =
-            index |> remainderBy 4
+            index |> Math.remainderBy 4
     in
     if index >= Array.length array * 4 + finalSize then
         input
@@ -382,7 +383,7 @@ update : Int -> (Int -> Int) -> ByteArray -> ByteArray
 update index f ((ByteArray array finalSize finalBytes) as input) =
     let
         offset =
-            index |> remainderBy 4
+            index |> Math.remainderBy 4
     in
     if index >= Array.length array * 4 + finalSize then
         input
@@ -446,7 +447,7 @@ update index f ((ByteArray array finalSize finalBytes) as input) =
 
 push value ((ByteArray array finalSize finalBytes) as input) =
     if finalSize == 4 then
-        ByteArray (Array.push finalBytes array) 1 (Bitwise.shiftLeftBy 24 value)
+        ByteArray (Array.pushLast finalBytes array) 1 (Bitwise.shiftLeftBy 24 value)
 
     else if finalSize == 0 then
         ByteArray array 1 (Bitwise.shiftLeftBy 24 value)
@@ -485,7 +486,7 @@ pushMany nbytes value_ ((ByteArray array finalSize finalBytes) as input) =
         input
 
     else if finalSize == 4 then
-        ByteArray (Array.push finalBytes array) nbytes (Bitwise.shiftLeftBy ((4 - nbytes) * 8) value)
+        ByteArray (Array.pushLast finalBytes array) nbytes (Bitwise.shiftLeftBy ((4 - nbytes) * 8) value)
 
     else if finalSize == 0 then
         ByteArray array nbytes (Bitwise.shiftLeftBy ((4 - nbytes) * 8) value)
@@ -515,7 +516,7 @@ pushMany nbytes value_ ((ByteArray array finalSize finalBytes) as input) =
                     Bitwise.and (Bitwise.shiftLeftBy (bytesLeftOver * 8) 1 - 1) value
                         |> Bitwise.shiftLeftBy amount
             in
-            ByteArray (Array.push newFinal array) (nbytes - freeSpace) forNextFinal
+            ByteArray (Array.pushLast newFinal array) (nbytes - freeSpace) forNextFinal
 
         else
             let
@@ -542,7 +543,7 @@ copyToBackInternal startIndex size array finalSize finalBytes =
             startIndex // 4
 
         offset =
-            startIndex |> remainderBy 4
+            startIndex |> Math.remainderBy 4
     in
     if size <= 0 then
         ByteArray array finalSize finalBytes
@@ -622,7 +623,7 @@ toBytes (ByteArray array finalSize finalBytes) =
                     []
 
         folder element accum =
-            Encode.unsignedInt32 BE element :: accum
+            Array.pushFirst (Encode.unsignedInt32 BE element) accum
     in
     Array.foldr folder initial array
         |> Encode.sequence
@@ -637,15 +638,15 @@ toBytes (ByteArray array finalSize finalBytes) =
 -}
 fromBytes : Bytes -> ByteArray
 fromBytes buffer =
-    case Decode.decode (Decode.loop ( Bytes.width buffer, Array.empty ) fromBytesHelp) buffer of
+    case Decode.decode (Decode.loop { v1 = Bytes.length buffer, v2 = Array.empty } fromBytesHelp) buffer of
         Nothing ->
             empty
 
-        Just ( finalSize, finalBytes, array ) ->
+        Just { v1 = finalSize, v2 = finalBytes, v3 = array } ->
             ByteArray array finalSize finalBytes
 
 
-fromBytesHelp ( remaining, array ) =
+fromBytesHelp { v1 = remaining, v2 = array } =
     if remaining >= 40 then
         -- yes, I profiled this and it is faster
         Decode.map5
@@ -653,9 +654,9 @@ fromBytesHelp ( remaining, array ) =
                 Decode.map5
                     (\f g h i j ->
                         Loop
-                            ( remaining - 40
-                            , Array.append array (Array.fromList [ a, b, c, d, e, f, g, h, i, j ])
-                            )
+                            { v1 = remaining - 40
+                            , v2 = Array.append array [ a, b, c, d, e, f, g, h, i, j ]
+                            }
                     )
                     (Decode.unsignedInt32 BE)
                     (Decode.unsignedInt32 BE)
@@ -674,14 +675,15 @@ fromBytesHelp ( remaining, array ) =
         Decode.map5
             (\a b c d e ->
                 Loop
-                    ( remaining - 20
-                    , array
-                        |> Array.push a
-                        |> Array.push b
-                        |> Array.push c
-                        |> Array.push d
-                        |> Array.push e
-                    )
+                    { v1 = remaining - 20
+                    , v2 =
+                        array
+                            |> Array.pushLast a
+                            |> Array.pushLast b
+                            |> Array.pushLast c
+                            |> Array.pushLast d
+                            |> Array.pushLast e
+                    }
             )
             (Decode.unsignedInt32 BE)
             (Decode.unsignedInt32 BE)
@@ -693,26 +695,27 @@ fromBytesHelp ( remaining, array ) =
         Decode.map
             (\a ->
                 Loop
-                    ( remaining - 4
-                    , array
-                        |> Array.push a
-                    )
+                    { v1 = remaining - 4
+                    , v2 =
+                        array
+                            |> Array.pushLast a
+                    }
             )
             (Decode.unsignedInt32 BE)
 
     else
         case remaining of
             0 ->
-                Decode.succeed (Done ( 0, 0, array ))
+                Decode.succeed (Done { v1 = 0, v2 = 0, v3 = array })
 
             1 ->
-                Decode.unsignedInt8 |> Decode.map (\byte -> Done ( 1, Bitwise.shiftLeftBy 24 byte, array ))
+                Decode.unsignedInt8 |> Decode.map (\byte -> Done { v1 = 1, v2 = Bitwise.shiftLeftBy 24 byte, v3 = array })
 
             2 ->
-                Decode.unsignedInt16 BE |> Decode.map (\byte -> Done ( 2, Bitwise.shiftLeftBy 16 byte, array ))
+                Decode.unsignedInt16 BE |> Decode.map (\byte -> Done { v1 = 2, v2 = Bitwise.shiftLeftBy 16 byte, v3 = array })
 
             _ ->
-                Decode.map2 (\bytes byte -> Done ( 3, Bitwise.or (Bitwise.shiftLeftBy 16 bytes) (Bitwise.shiftLeftBy 8 byte), array ))
+                Decode.map2 (\bytes byte -> Done { v1 = 3, v2 = Bitwise.or (Bitwise.shiftLeftBy 16 bytes) (Bitwise.shiftLeftBy 8 byte), v3 = array })
                     (Decode.unsignedInt16 BE)
                     Decode.unsignedInt8
 
