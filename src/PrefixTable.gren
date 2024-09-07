@@ -1,9 +1,9 @@
 module PrefixTable exposing (Prefix(..), PrefixCode, PrefixTable, insert, new, prefixAt)
 
-import Array exposing (Array)
 import Bitwise
 import Dict exposing (Dict)
 import Experimental.ByteArray as ByteArray exposing (ByteArray)
+import Math
 
 
 {-| Maximum backward distance of a pointer.
@@ -36,7 +36,7 @@ new nbytes =
         Large newLargePrefixTable
 
 
-insert : PrefixCode -> Int -> PrefixTable -> ( PrefixTable, Maybe Int )
+insert : PrefixCode -> Int -> PrefixTable -> { v1 : PrefixTable, v2 : Maybe Int }
 insert (PrefixCode prefix_) position ptable =
     let
         prefix =
@@ -47,10 +47,10 @@ insert (PrefixCode prefix_) position ptable =
         Small dict ->
             case Dict.get prefix dict of
                 Nothing ->
-                    ( Small (Dict.insert prefix position dict), Nothing )
+                    { v1 = Small (Dict.set prefix position dict), v2 = Nothing }
 
                 Just oldValue ->
-                    ( Small (Dict.insert prefix position dict), Just oldValue )
+                    { v1 = Small (Dict.set prefix position dict), v2 = Just oldValue }
 
         Large (LargePrefixTable array) ->
             let
@@ -59,35 +59,35 @@ insert (PrefixCode prefix_) position ptable =
             in
             case Array.get index array of
                 Nothing ->
-                    ( ptable, Nothing )
+                    { v1 = ptable, v2 = Nothing }
 
                 Just positions ->
                     insertInList index array (Bitwise.and 0xFF prefix) position positions []
 
 
 insertInList i array p2 position remaining accum =
-    case remaining of
-        [] ->
+    case Array.popFirst remaining of
+        Nothing ->
             let
                 newPositions =
-                    ( p2, position ) :: accum
+                    Array.pushFirst { v1 = p2, v2 = position } accum
             in
-            ( Large (LargePrefixTable (Array.set i newPositions array)), Nothing )
+            { v1 = Large (LargePrefixTable (Array.set i newPositions array)), v2 = Nothing }
 
-        (( key, oldValue ) as current) :: rest ->
+        Just { first = { v1 = key, v2 = oldValue } as current, rest = rest } ->
             if (key - p2) == 0 then
                 let
                     newPositions =
-                        accum ++ (( key, position ) :: rest)
+                        accum ++ Array.pushFirst { v1 = key, v2 = position } rest
                 in
-                ( Large (LargePrefixTable (Array.set i newPositions array)), Just oldValue )
+                { v1 = Large (LargePrefixTable (Array.set i newPositions array)), v2 = Just oldValue }
 
             else
-                insertInList i array p2 position rest (current :: accum)
+                insertInList i array p2 position rest (Array.pushFirst current accum)
 
 
 type LargePrefixTable
-    = LargePrefixTable (Array (List ( Int, Int )))
+    = LargePrefixTable (Array (Array { v1 : Int, v2 : Int }))
 
 
 newLargePrefixTable =
@@ -146,7 +146,7 @@ prefixAt k input =
         let
             offset =
                 k
-                    |> remainderBy 4
+                    |> Math.remainderBy 4
 
             internalIndex =
                 k // 4
