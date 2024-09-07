@@ -1,10 +1,10 @@
 module Inflate.BitReader exposing (BitReader(..), State, andMap, andThen, decode, embed, error, exactly, flush, getBit, getState, loop, map, map2, map3, map4, readBits, readMoreBits, runDecoder, skipToByteBoundary, succeed)
 
-import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder, Step(..))
 import Bytes.Encode as Encode
+import Math
 
 
 {-|
@@ -33,27 +33,27 @@ readMoreBits state =
     if freeSpaceOnTag <= state.reserveAvailable && state.reserveAvailable > 0 then
         Ok (moveFromReserve freeSpaceOnTag state)
 
-    else if Bytes.width state.buffer == 0 then
+    else if Bytes.length state.buffer == 0 then
         Ok (moveFromReserve state.reserveAvailable state)
 
     else
         let
-            ( width, additionallyAvailable, decoder ) =
-                case Bytes.width state.buffer of
+            { v1 = width, v2 = additionallyAvailable, v3 = decoder } =
+                case Bytes.length state.buffer of
                     0 ->
-                        ( 0, 0, Decode.succeed 0 )
+                        { v1 = 0, v2 = 0, v3 = Decode.succeed 0 }
 
                     1 ->
-                        ( 1, 8, Decode.unsignedInt8 )
+                        { v1 = 1, v2 = 8, v3 = Decode.unsignedInt8 }
 
                     2 ->
-                        ( 2, 16, Decode.unsignedInt16 LE )
+                        { v1 = 2, v2 = 16, v3 = Decode.unsignedInt16 LE }
 
                     3 ->
-                        ( 3, 24, unsignedInt24 LE )
+                        { v1 = 3, v2 = 24, v3 = unsignedInt24 LE }
 
                     _ ->
-                        ( 4, 32, Decode.unsignedInt32 LE )
+                        { v1 = 4, v2 = 32, v3 = Decode.unsignedInt32 LE }
 
             state1 =
                 moveFromReserve state.reserveAvailable state
@@ -62,7 +62,7 @@ readMoreBits state =
             Err e ->
                 Err e
 
-            Ok ( newReserve, newBuffer ) ->
+            Ok { v1 = newReserve, v2 = newBuffer } ->
                 readMoreBits
                     { tag = state1.tag
                     , bitsAvailable = state1.bitsAvailable
@@ -162,7 +162,7 @@ decode bytes (BitReader reader) =
             }
     in
     case reader initialState of
-        Ok ( value, _ ) ->
+        Ok { v1 = value, v2 = _ } ->
             Ok value
 
         Err e ->
@@ -170,15 +170,15 @@ decode bytes (BitReader reader) =
 
 
 type BitReader b
-    = BitReader (State -> Result String ( b, State ))
+    = BitReader (State -> Result String { v1 : b, v2 : State })
 
 
 getState : BitReader State
 getState =
-    BitReader (\s -> Ok ( s, s ))
+    BitReader (\s -> Ok { v1 = s, v2 = s })
 
 
-skipToByteBoundary : BitReader ()
+skipToByteBoundary : BitReader {}
 skipToByteBoundary =
     BitReader
         (\s ->
@@ -188,7 +188,7 @@ skipToByteBoundary =
                     s.bitsAvailable + s.reserveAvailable
 
                 untilBoundary =
-                    available |> modBy 8
+                    available |> Math.modBy 8
 
                 (BitReader step) =
                     readBits untilBoundary 0
@@ -197,7 +197,7 @@ skipToByteBoundary =
                 Err e ->
                     Err e
 
-                Ok ( _, newState ) ->
+                Ok { v1 = _, v2 = newState } ->
                     -- Step 2: then move bits from the reserve to the tag, so both have a multiple of 8 number of bits
                     case readMoreBits newState of
                         Err e ->
@@ -206,13 +206,13 @@ skipToByteBoundary =
                         Ok newerState ->
                             -- Step 3: move those bits back into the buffer
                             -- this is essential for reading uncompressed blocks!
-                            Ok ( (), flush newerState )
+                            Ok { v1 = {}, v2 = flush newerState }
         )
 
 
 succeed : a -> BitReader a
 succeed x =
-    BitReader (\s -> Ok ( x, s ))
+    BitReader (\s -> Ok { v1 = x, v2 = s })
 
 
 error : String -> BitReader a
@@ -220,7 +220,7 @@ error e =
     BitReader (\s -> Err e)
 
 
-embed : (State -> Result String ( b, State )) -> BitReader b
+embed : (State -> Result String { v1 : b, v2 : State }) -> BitReader b
 embed =
     BitReader
 
@@ -230,8 +230,8 @@ map f (BitReader g) =
     BitReader
         (\s ->
             case g s of
-                Ok ( value, newState ) ->
-                    Ok ( f value, newState )
+                Ok { v1 = value, v2 = newState } ->
+                    Ok { v1 = f value, v2 = newState }
 
                 Err e ->
                     Err e
@@ -255,13 +255,13 @@ map2 f (BitReader fa) (BitReader fb) =
                 Err e ->
                     Err e
 
-                Ok ( a, newState ) ->
+                Ok { v1 = a, v2 = newState } ->
                     case fb newState of
                         Err e ->
                             Err e
 
-                        Ok ( b, newerState ) ->
-                            Ok ( f a b, newerState )
+                        Ok { v1 = b, v2 = newerState } ->
+                            Ok { v1 = f a b, v2 = newerState }
 
 
 map3 :
@@ -297,7 +297,7 @@ andThen f (BitReader g) =
     BitReader <|
         \s ->
             case g s of
-                Ok ( value, newState ) ->
+                Ok { v1 = value, v2 = newState } ->
                     let
                         (BitReader h) =
                             f value
@@ -314,7 +314,7 @@ readBits numberOfBits base =
     BitReader <|
         \state ->
             if numberOfBits == 0 then
-                Ok ( base, state )
+                Ok { v1 = base, v2 = state }
 
             else
                 case
@@ -336,14 +336,15 @@ readBits numberOfBits base =
                                 Bitwise.shiftRightZfBy numberOfBits d.tag
                         in
                         Ok
-                            ( val + base
-                            , { tag = newTag
-                              , bitsAvailable = d.bitsAvailable - numberOfBits
-                              , reserve = d.reserve
-                              , reserveAvailable = d.reserveAvailable
-                              , buffer = d.buffer
-                              }
-                            )
+                            { v1 = val + base
+                            , v2 =
+                                { tag = newTag
+                                , bitsAvailable = d.bitsAvailable - numberOfBits
+                                , reserve = d.reserve
+                                , reserveAvailable = d.reserveAvailable
+                                , buffer = d.buffer
+                                }
+                            }
 
 
 getBit : BitReader Int
@@ -360,11 +361,11 @@ unsignedInt24 endianness =
             Decode.map2 (\b1 b2 -> Bitwise.or (Bitwise.shiftLeftBy 16 b1) b2) (Decode.unsignedInt16 endianness) Decode.unsignedInt8
 
 
-runDecoder : Int -> Decode.Decoder a -> State -> Result String ( a, Bytes )
+runDecoder : Int -> Decode.Decoder a -> State -> Result String { v1 : a, v2 : Bytes }
 runDecoder width valueDecoder state =
     let
         decoder =
-            Decode.map2 Tuple.pair valueDecoder (Decode.bytes (Bytes.width state.buffer - width))
+            Decode.map2 ( \ a b -> { v1 = a, v2 = b }) valueDecoder (Decode.bytes (Bytes.length state.buffer - width))
     in
     case Decode.decode decoder state.buffer of
         Just value ->
@@ -379,7 +380,7 @@ loop state callback =
     BitReader (loopHelp state callback)
 
 
-loopHelp : state -> (state -> BitReader (Step state a)) -> State -> Result String ( a, State )
+loopHelp : state -> (state -> BitReader (Step state a)) -> State -> Result String { v1 : a, v2 : State }
 loopHelp accum callback state =
     let
         (BitReader decoder) =
@@ -389,21 +390,21 @@ loopHelp accum callback state =
         Err e ->
             Err e
 
-        Ok ( Loop newAccum, newState ) ->
+        Ok { v1 = Loop newAccum, v2 = newState } ->
             loopHelp newAccum callback newState
 
-        Ok ( Done result, newState ) ->
-            Ok ( result, newState )
+        Ok { v1 = Done result, v2 = newState } ->
+            Ok { v1 = result, v2 = newState }
 
 
-exactly : Int -> BitReader a -> BitReader (List a)
+exactly : Int -> BitReader a -> BitReader (Array a)
 exactly tableCount decoder =
     let
-        helper ( n, xs ) =
+        helper { v1 = n, v2 = xs } =
             if n <= 0 then
-                succeed (Done (List.reverse xs))
+                succeed (Done (Array.reverse xs))
 
             else
-                map (\x -> Loop ( n - 1, x :: xs )) decoder
+                map (\x -> Loop { v1 = n - 1, v2 = Array.pushFirst x xs }) decoder
     in
-    loop ( tableCount, [] ) helper
+    loop { v1 = tableCount, v2 = [] } helper
