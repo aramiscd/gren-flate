@@ -8,6 +8,7 @@ This BitSet makes checking for membership MUCH faster, and only then do we actua
 -}
 
 import Bitwise
+import Math
 
 
 type BitSet320
@@ -27,7 +28,7 @@ member n ((BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10) as input) =
     else
         let
             bit =
-                Bitwise.shiftLeftBy (remainderBy 32 n) 1
+                Bitwise.shiftLeftBy (Math.remainderBy 32 n) 1
         in
         case n // 32 of
             0 ->
@@ -72,7 +73,7 @@ insert n ((BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10) as input) =
     else
         let
             bit =
-                Bitwise.shiftLeftBy (remainderBy 32 n) 1
+                Bitwise.shiftLeftBy (Math.remainderBy 32 n) 1
         in
         case n // 32 of
             0 ->
@@ -117,7 +118,7 @@ remove n ((BitSet320 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10) as input) =
     else
         let
             bit =
-                Bitwise.shiftLeftBy (remainderBy 32 n) 1
+                Bitwise.shiftLeftBy (Math.remainderBy 32 n) 1
                     |> Bitwise.complement
         in
         case n // 32 of
