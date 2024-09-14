@@ -1,6 +1,5 @@
 module ByteArray exposing (decoder, fromBytes, toBytes)
 
-import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder)
@@ -11,7 +10,7 @@ import Bytes.Encode as Encode exposing (Encoder)
 -}
 fromBytes : Bytes -> Array Int
 fromBytes buffer =
-    case Decode.decode (decoder (Bytes.width buffer)) buffer of
+    case Decode.decode (decoder (Bytes.length buffer)) buffer of
         Nothing ->
             Array.empty
 
@@ -21,14 +20,14 @@ fromBytes buffer =
 
 decoder : Int -> Decoder (Array Int)
 decoder n =
-    Decode.loop ( n, Array.empty ) decodeByteArrayHelp
+    Decode.loop { v1 = n, v2 = Array.empty } decodeByteArrayHelp
 
 
 {-| Turn `Array Int` into `Bytes` efficiently
 -}
 toBytes : Array Int -> Bytes
 toBytes array =
-    Array.foldr fasterEncodeFolderR ( 0, 0, [] ) array
+    Array.foldr fasterEncodeFolderR { v1 = 0, v2 = 0, v3 = [] } array
         |> fasterEncodeR
         |> Encode.sequence
         |> Encode.encode
@@ -38,11 +37,11 @@ toBytes array =
 -}
 decodeByteArrayLowLevel : Int -> Array Int -> Decoder (Array Int)
 decodeByteArrayLowLevel n initial =
-    Decode.loop ( n, initial ) decodeByteArrayHelp
+    Decode.loop { v1 = n, v2 = initial } decodeByteArrayHelp
 
 
-decodeByteArrayHelp : ( Int, Array Int ) -> Decoder (Decode.Step ( Int, Array Int ) (Array Int))
-decodeByteArrayHelp ( remaining, accum ) =
+decodeByteArrayHelp : { v1 : Int, v2 : Array Int } -> Decoder (Decode.Step { v1 : Int, v2 : Array Int } (Array Int))
+decodeByteArrayHelp { v1 = remaining, v2 = accum } =
     if remaining >= 4 then
         Decode.unsignedInt32 BE
             |> Decode.map
@@ -70,16 +69,16 @@ decodeByteArrayHelp ( remaining, accum ) =
 
                         newAccum =
                             accum
-                                |> Array.push byte1
-                                |> Array.push byte2
-                                |> Array.push byte3
-                                |> Array.push byte4
+                                |> Array.pushLast byte1
+                                |> Array.pushLast byte2
+                                |> Array.pushLast byte3
+                                |> Array.pushLast byte4
                     in
-                    Decode.Loop ( remaining - 4, newAccum )
+                    Decode.Loop { v1 = remaining - 4, v2 = newAccum }
                 )
 
     else if remaining > 0 then
-        Decode.unsignedInt8 |> Decode.map (\new -> Decode.Loop ( remaining - 1, Array.push new accum ))
+        Decode.unsignedInt8 |> Decode.map (\new -> Decode.Loop { v1 = remaining - 1, v2 = Array.pushLast new accum })
 
     else
         Decode.succeed (Decode.Done accum)
@@ -87,8 +86,8 @@ decodeByteArrayHelp ( remaining, accum ) =
 
 {-| Finish up with the remaining (left-most) bytes
 -}
-fasterEncodeR : ( Int, Int, List Encoder ) -> List Encoder
-fasterEncodeR ( bytesOnAccum, accum, otherEncoders ) =
+fasterEncodeR : { v1 : Int, v2 : Int, v3 : Array Encoder } -> Array Encoder
+fasterEncodeR { v1 = bytesOnAccum, v2 = accum, v3 = otherEncoders } =
     let
         encoders =
             case bytesOnAccum of
@@ -96,10 +95,10 @@ fasterEncodeR ( bytesOnAccum, accum, otherEncoders ) =
                     otherEncoders
 
                 1 ->
-                    Encode.unsignedInt8 accum :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt8 accum) otherEncoders
 
                 2 ->
-                    Encode.unsignedInt16 BE accum :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt16 BE accum) otherEncoders
 
                 _ ->
                     let
@@ -109,7 +108,7 @@ fasterEncodeR ( bytesOnAccum, accum, otherEncoders ) =
                         otherBytes =
                             Bitwise.shiftRightBy 8 accum
                     in
-                    Encode.unsignedInt16 BE otherBytes :: Encode.unsignedInt8 firstByte :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt16 BE otherBytes) (Array.pushFirst (Encode.unsignedInt8 firstByte) otherEncoders)
     in
     encoders
 
@@ -124,7 +123,7 @@ The smaller number of encoders is crucial because
   - an implementation detail in `Encode.sequence` that makes encoding a sequence of values with the same length much slower than it could be.
 
 -}
-fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
+fasterEncodeFolderR byte { v1 = bytesOnAccum, v2 = accum, v3 = encoders } =
     case bytesOnAccum of
         0 ->
             let
@@ -132,7 +131,7 @@ fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
                     byte
                         |> Bitwise.and 0xFF
             in
-            ( 1, value, encoders )
+            { v1 = 1, v2 = value, v3 = encoders }
 
         1 ->
             let
@@ -142,7 +141,7 @@ fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
                         |> Bitwise.shiftLeftBy 8
                         |> Bitwise.or accum
             in
-            ( 2, value, encoders )
+            { v1 = 2, v2 = value, v3 = encoders }
 
         2 ->
             let
@@ -152,7 +151,7 @@ fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
                         |> Bitwise.shiftLeftBy 16
                         |> Bitwise.or accum
             in
-            ( 3, value, encoders )
+            { v1 = 3, v2 = value, v3 = encoders }
 
         _ ->
             let
@@ -162,10 +161,10 @@ fasterEncodeFolderR byte ( bytesOnAccum, accum, encoders ) =
                         |> Bitwise.shiftLeftBy 24
                         |> Bitwise.or accum
             in
-            ( 0, 0, Encode.unsignedInt32 BE value :: encoders )
+            { v1 = 0, v2 = 0, v3 = Array.pushFirst (Encode.unsignedInt32 BE value) encoders }
 
 
-fasterEncodeL ( bytesOnAccum, accum, otherEncoders ) =
+fasterEncodeL { v1 = bytesOnAccum, v2 = accum, v3 = otherEncoders } =
     let
         encoders =
             case bytesOnAccum of
@@ -173,10 +172,10 @@ fasterEncodeL ( bytesOnAccum, accum, otherEncoders ) =
                     otherEncoders
 
                 1 ->
-                    Encode.unsignedInt8 accum :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt8 accum) otherEncoders
 
                 2 ->
-                    Encode.unsignedInt16 BE accum :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt16 BE accum) otherEncoders
 
                 _ ->
                     let
@@ -186,33 +185,33 @@ fasterEncodeL ( bytesOnAccum, accum, otherEncoders ) =
                         otherBytes =
                             Bitwise.shiftRightBy 8 accum
                     in
-                    Encode.unsignedInt8 firstByte :: Encode.unsignedInt16 BE otherBytes :: otherEncoders
+                    Array.pushFirst (Encode.unsignedInt8 firstByte) (Array.pushFirst (Encode.unsignedInt16 BE otherBytes) otherEncoders)
     in
     encoders
 
 
-fasterEncodeFolderL byte ( bytesOnAccum, accum, encoders ) =
+fasterEncodeFolderL byte { v1 = bytesOnAccum, v2 = accum, v3 = encoders } =
     case bytesOnAccum of
         0 ->
-            ( 1, Bitwise.and 0xFF byte, encoders )
+            { v1 = 1, v2 = Bitwise.and 0xFF byte, v3 = encoders }
 
         1 ->
             let
                 value =
                     Bitwise.or (Bitwise.shiftLeftBy 8 accum) (Bitwise.and 0xFF byte)
             in
-            ( 2, value, encoders )
+            { v1 = 2, v2 = value, v3 = encoders }
 
         2 ->
             let
                 value =
                     Bitwise.or (Bitwise.shiftLeftBy 8 accum) (Bitwise.and 0xFF byte)
             in
-            ( 3, value, encoders )
+            { v1 = 3, v2 = value, v3 = encoders }
 
         _ ->
             let
                 value =
                     Bitwise.or (Bitwise.shiftLeftBy 8 accum) (Bitwise.and 0xFF byte)
             in
-            ( 0, 0, Encode.unsignedInt32 BE value :: encoders )
+            { v1 = 0, v2 = 0, v3 = Array.pushFirst (Encode.unsignedInt32 BE value) encoders }
