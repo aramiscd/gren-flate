@@ -1,8 +1,5 @@
 module Inflate.Internal exposing (HuffmanTable, Tree, buildBitsBase, buildTree, clcIndices, decodeDynamicTreeLength, decodeSymbol, decodeTrees, hardcodedDistanceTable, hardcodedLengthTable, huffmanTableToList, inflate, inflateBlockData, inflateBlockDataHelp, inflateUncompressedBlock, sdtree, sltree, uncompress, uncompressHelp)
 
--- import ByteArray
-
-import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Step(..))
@@ -11,7 +8,6 @@ import Dict exposing (Dict)
 import Experimental.ByteArray as ByteArray exposing (ByteArray)
 import Inflate.BitReader as BitReader exposing (BitReader(..))
 import Inflate.BitSet as BitSet exposing (BitSet320)
-import List.Extra
 
 
 inflate : Bytes -> Result String Bytes
@@ -21,13 +17,13 @@ inflate buffer =
             Err e
 
         Ok values ->
-            Ok (Encode.encode <| Encode.sequence (List.map Encode.bytes values))
+            Ok (Encode.encode <| Encode.sequence (Array.map Encode.bytes values))
 
 
-uncompress : BitReader (List Bytes)
+uncompress : BitReader (Array Bytes)
 uncompress =
     BitReader.loop ByteArray.empty uncompressHelp
-        |> BitReader.map (ByteArray.toBytes >> List.singleton)
+        |> BitReader.map (ByteArray.toBytes >> Array.singleton)
 
 
 uncompressHelp : ByteArray -> BitReader (Step ByteArray ByteArray)
@@ -50,7 +46,7 @@ uncompressHelp output =
 
                 2 ->
                     decodeTrees
-                        |> BitReader.andThen (\( ltree, dtree ) -> inflateBlockData { literal = ltree, distance = dtree } (ByteArray.length output) output)
+                        |> BitReader.andThen (\{ v1 = ltree, v2 = dtree } -> inflateBlockData { literal = ltree, distance = dtree } (ByteArray.length output) output)
 
                 _ ->
                     BitReader.error ("invalid block type: " ++ String.fromInt btype ++ " (only 0, 1 and 2 are valid block types)")
@@ -70,9 +66,9 @@ type HuffmanTable
     = HuffmanTable (Array { bits : Int, base : Int })
 
 
-huffmanTableToList : HuffmanTable -> List { bits : Int, base : Int }
+huffmanTableToList : HuffmanTable -> Array { bits : Int, base : Int }
 huffmanTableToList (HuffmanTable table) =
-    Array.toList table
+    table
 
 
 readHuffmanTable : Int -> HuffmanTable -> Maybe { bits : Int, base : Int }
@@ -81,14 +77,14 @@ readHuffmanTable index (HuffmanTable table) =
 
 
 type alias Tree =
-    { table : List Int, trans : Array Int }
+    { table : Array Int, trans : Array Int }
 
 
 buildBitsBase : Int -> Int -> HuffmanTable
 buildBitsBase delta first =
     let
-        folder bit ( sum, accum ) =
-            ( sum + Bitwise.shiftLeftBy bit 1, Array.push { bits = bit, base = sum } accum )
+        folder bit { v1 = sum, v2 = accum } =
+            { v1 = sum + Bitwise.shiftLeftBy bit 1, v2 = Array.pushLast { bits = bit, base = sum } accum }
 
         initializer i =
             if i < delta then
@@ -98,11 +94,11 @@ buildBitsBase delta first =
                 (i - delta) // delta
 
         bits =
-            Array.initialize 30 initializer
+            Array.initialize 30 0 initializer
 
         base =
-            Array.foldl folder ( first, Array.empty ) bits
-                |> Tuple.second
+            Array.foldl folder { v1 = first, v2 = Array.empty } bits
+                |> (\r -> r.v2)
     in
     HuffmanTable base
 
@@ -123,35 +119,34 @@ sltree : Tree
 sltree =
     { table = [ 0, 0, 0, 0, 0, 0, 0, 24, 152, 112, 0, 0, 0, 0, 0, 0 ]
     , trans =
-        Array.fromList
-            [ 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 280, 281, 282, 283, 284, 285, 286, 287, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255 ]
+        [ 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 280, 281, 282, 283, 284, 285, 286, 287, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255 ]
     }
 
 
 sdtree : Tree
 sdtree =
     { table = [ 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
-    , trans = Array.append (Array.fromList [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 ]) (Array.repeat (288 - 32) 0)
+    , trans = Array.append [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 ] (Array.repeat (288 - 32) 0)
     }
 
 
-clcIndices : List Int
+clcIndices : Array Int
 clcIndices =
     [ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 ]
 
 
 lengthsToDict lengths =
     Array.foldl
-        (\element ( i, accum ) ->
+        (\element { v1 = i, v2 = accum } ->
             if element > 0 then
-                ( i + 1, Dict.insert i element accum )
+                { v1 = i + 1, v2 = Dict.set i element accum }
 
             else
-                ( i + 1, accum )
+                { v1 = i + 1, v2 = accum }
         )
-        ( 0, Dict.empty )
+        { v1 = 0, v2 = Dict.empty }
         lengths
-        |> Tuple.second
+        |> (\r -> r.v2)
 
 
 buildTree : Dict Int Int -> Int -> Int -> Tree
@@ -180,26 +175,26 @@ buildTree lengths offset num =
             let
                 helper key value i array =
                     if i > key then
-                        helper key value (i - 1) (0 :: array)
+                        helper key value (i - 1) (Array.pushFirst 0 array)
 
                     else
-                        value :: array
+                        Array.pushFirst value array
 
-                foldHelp key value ( i, array ) =
-                    ( key - 1, helper key value i array )
+                foldHelp key value { v1 = i, v2 = array } =
+                    { v1 = key - 1, v2 = helper key value i array }
 
                 anotherGo i array =
                     if i >= 0 then
-                        anotherGo (i - 1) (0 :: array)
+                        anotherGo (i - 1) (Array.pushFirst 0 array)
 
                     else
                         array
             in
-            Dict.foldr foldHelp ( 15, [] ) tableDict
-                |> (\( a, b ) -> anotherGo a b)
+            Dict.foldr foldHelp { v1 = 15, v2 = [] } tableDict
+                |> (\{ v1 = a, v2 = b } -> anotherGo a b)
 
         offsetsDict =
-            Dict.foldl (\key value ( sum, dict ) -> ( sum + value, Dict.insert key sum dict )) ( 0, Dict.empty ) tableDict
+            Dict.foldl (\key value { v1 = sum, v2 = dict } -> { v1 = sum + value, v2 = Dict.set key sum dict }) { v1 = 0, v2 = Dict.empty } tableDict
 
         go2 i currentTranslation currentOffsets =
             if (i - num) < 0 then
@@ -214,7 +209,7 @@ buildTree lengths offset num =
                                     currentTranslation
 
                                 Just w ->
-                                    go2 (i + 1) (Array.set w i currentTranslation) (Dict.insert v (w + 1) currentOffsets)
+                                    go2 (i + 1) (Array.set w i currentTranslation) (Dict.set v (w + 1) currentOffsets)
 
                         else
                             go2 (i + 1) currentTranslation currentOffsets
@@ -223,7 +218,7 @@ buildTree lengths offset num =
                 currentTranslation
 
         translation2 =
-            go2 0 (Array.repeat num 0) (offsetsDict |> Tuple.second)
+            go2 0 (Array.repeat num 0) (offsetsDict |> (\r -> r.v2))
     in
     { table = newTable, trans = translation2 }
 
@@ -237,7 +232,7 @@ unsafeGet i a =
             v
 
 
-decodeSymbol : List Int -> Tree -> BitReader Int
+decodeSymbol : Array Int -> Tree -> BitReader Int
 decodeSymbol table tree =
     BitReader <|
         \state ->
@@ -261,7 +256,7 @@ decodeSymbol table tree =
                             Err "Index into trans tree out of bounds"
 
                         Just result ->
-                            Ok ( result, { tag = tag, bitsAvailable = bitsAvailable, buffer = d.buffer, reserveAvailable = d.reserveAvailable, reserve = d.reserve } )
+                            Ok { v1 = result, v2 = { tag = tag, bitsAvailable = bitsAvailable, buffer = d.buffer, reserveAvailable = d.reserveAvailable, reserve = d.reserve } }
 
 
 decodeSymbolInnerLoop table cur tag bitsAvailable sum =
@@ -269,12 +264,12 @@ decodeSymbolInnerLoop table cur tag bitsAvailable sum =
         newTag =
             Bitwise.shiftRightZfBy 1 tag
     in
-    case table of
-        [] ->
+    case Array.popFirst table of
+        Nothing ->
             -- unreachable
             { cur = cur, tag = tag, bitsAvailable = bitsAvailable, sum = sum }
 
-        value :: rest ->
+        Just { first = value, rest = rest } ->
             let
                 newSum =
                     sum + value
@@ -293,47 +288,47 @@ decodeSymbolInnerLoop table cur tag bitsAvailable sum =
 -- DECODE HUFFMAN TREES
 
 
-decodeTrees : BitReader ( Tree, Tree )
+decodeTrees : BitReader { v1 : Tree, v2 : Tree }
 decodeTrees =
     BitReader.map3 cont (BitReader.readBits 5 257) (BitReader.readBits 5 1) (BitReader.readBits 4 4)
         |> BitReader.andThen identity
 
 
-cont : Int -> Int -> Int -> BitReader ( Tree, Tree )
+cont : Int -> Int -> Int -> BitReader { v1 : Tree, v2 : Tree }
 cont hlit hdist hclen =
     let
-        buildTrees : Dict Int Int -> ( Tree, Tree )
+        buildTrees : Dict Int Int -> { v1 : Tree, v2 : Tree }
         buildTrees lengths =
-            ( buildTree lengths 0 hlit
-            , buildTree lengths hlit hdist
-            )
+            { v1 = buildTree lengths 0 hlit
+            , v2 = buildTree lengths hlit hdist
+            }
     in
     BitReader.exactly hclen (BitReader.readBits 3 0)
         |> BitReader.andThen (decodeTreeLengths hlit hdist hclen)
         |> BitReader.map buildTrees
 
 
-decodeTreeLengths : Int -> Int -> Int -> List Int -> BitReader (Dict Int Int)
+decodeTreeLengths : Int -> Int -> Int -> Array Int -> BitReader (Dict Int Int)
 decodeTreeLengths hlit hdist hclen codeLengths =
     let
         clcs =
-            List.take hclen clcIndices
+            Array.takeFirst hclen clcIndices
 
         initialLengths =
             let
                 go xs ys accum =
-                    case xs of
-                        [] ->
+                    case Array.popFirst xs of
+                        Nothing ->
                             accum
 
-                        index :: restIndex ->
-                            case ys of
-                                [] ->
+                        Just { first = index, rest = restIndex } ->
+                            case Array.popFirst ys of
+                                Nothing ->
                                     accum
 
-                                codeLength :: restCodeLength ->
+                                Just { first = codeLength, rest = restCodeLength } ->
                                     if codeLength /= 0 then
-                                        go restIndex restCodeLength (Dict.insert index codeLength accum)
+                                        go restIndex restCodeLength (Dict.set index codeLength accum)
 
                                     else
                                         go restIndex restCodeLength accum
@@ -346,10 +341,10 @@ decodeTreeLengths hlit hdist hclen codeLengths =
         initialBitSet =
             Dict.foldl (\i _ -> BitSet.insert i) BitSet.empty initialLengths
     in
-    BitReader.loop ( 0, initialBitSet, initialLengths ) (decodeDynamicTreeLength codeTree hlit hdist)
+    BitReader.loop { v1 = 0, v2 = initialBitSet, v3 = initialLengths } (decodeDynamicTreeLength codeTree hlit hdist)
 
 
-copySegment : Int -> Int -> BitSet320 -> Dict Int Int -> Int -> ( Int, BitSet320, Dict Int Int )
+copySegment : Int -> Int -> BitSet320 -> Dict Int Int -> Int -> { v1 : Int, v2 : BitSet320, v3 : Dict Int Int }
 copySegment i value bitset lengths length =
     let
         end =
@@ -358,7 +353,7 @@ copySegment i value bitset lengths length =
         go j currentBitSet accum =
             if (j - end) < 0 then
                 if value /= 0 then
-                    go (j + 1) (BitSet.insert j currentBitSet) (Dict.insert j value accum)
+                    go (j + 1) (BitSet.insert j currentBitSet) (Dict.set j value accum)
 
                 else if BitSet.member j currentBitSet then
                     -- overwrite a set value with 0 means removing it
@@ -369,23 +364,24 @@ copySegment i value bitset lengths length =
                     go (j + 1) currentBitSet accum
 
             else
-                ( currentBitSet, accum )
+                { v1 = currentBitSet, v2 = accum }
 
-        ( newBitSet, newLengths ) =
+        { v1 = newBitSet, v2 = newLengths } =
             go i bitset lengths
     in
-    ( i + length
-    , newBitSet
-    , newLengths
-    )
+    { v1 = i + length
+    , v2 = newBitSet
+    , v3 = newLengths
+    }
 
 
-decodeDynamicTreeLength : Tree -> Int -> Int -> ( Int, BitSet320, Dict Int Int ) -> BitReader (Step ( Int, BitSet320, Dict Int Int ) (Dict Int Int))
-decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
+decodeDynamicTreeLength : Tree -> Int -> Int -> { v1 : Int, v2 : BitSet320, v3 : Dict Int Int } -> BitReader (Step { v1 : Int, v2 : BitSet320, v3 : Dict Int Int } (Dict Int Int))
+decodeDynamicTreeLength codeTree hlit hdist { v1 = i, v2 = bitset, v3 = lengths } =
     if i < hlit + hdist then
         let
             table =
-                List.tail codeTree.table
+                Array.popFirst codeTree.table
+                    |> Maybe.map .rest
                     |> Maybe.withDefault []
         in
         decodeSymbol table codeTree
@@ -413,16 +409,16 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
 
                         0 ->
                             -- 0 is the default of the dict; don't write it
-                            -- BitReader.succeed (Loop ( i + 1, lengths ))
+                            -- BitReader.succeed (Loop { v1 = i + 1, v2 = lengths })
                             if BitSet.member i bitset then
-                                BitReader.succeed (Loop ( i + 1, bitset, Dict.remove i lengths ))
+                                BitReader.succeed (Loop { v1 = i + 1, v2 = bitset, v3 = Dict.remove i lengths })
 
                             else
-                                BitReader.succeed (Loop ( i + 1, bitset, lengths ))
+                                BitReader.succeed (Loop { v1 = i + 1, v2 = bitset, v3 = lengths })
 
                         _ ->
                             -- values 0-15 represent the actual code lengths
-                            BitReader.succeed (Loop ( i + 1, BitSet.insert i bitset, Dict.insert i sym lengths ))
+                            BitReader.succeed (Loop { v1 = i + 1, v2 = BitSet.insert i bitset, v3 = Dict.set i sym lengths })
                 )
 
     else
@@ -435,14 +431,15 @@ decodeDynamicTreeLength codeTree hlit hdist ( i, bitset, lengths ) =
 
 inflateBlockData : { literal : Tree, distance : Tree } -> Int -> ByteArray -> BitReader ByteArray
 inflateBlockData trees outputLength output =
-    BitReader.loop ( outputLength, output ) (inflateBlockDataHelp trees)
+    BitReader.loop { v1 = outputLength, v2 = output } (inflateBlockDataHelp trees)
 
 
-inflateBlockDataHelp : { literal : Tree, distance : Tree } -> ( Int, ByteArray ) -> BitReader (Step ( Int, ByteArray ) ByteArray)
-inflateBlockDataHelp trees ( outputLength, output ) =
+inflateBlockDataHelp : { literal : Tree, distance : Tree } -> { v1 : Int, v2 : ByteArray } -> BitReader (Step { v1 : Int, v2 : ByteArray } ByteArray)
+inflateBlockDataHelp trees { v1 = outputLength, v2 = output } =
     let
         table =
-            List.tail trees.literal.table
+            Array.popFirst trees.literal.table
+                |> Maybe.map .rest
                 |> Maybe.withDefault []
     in
     decodeSymbol table trees.literal
@@ -453,10 +450,10 @@ inflateBlockDataHelp trees ( outputLength, output ) =
                     BitReader.succeed (Done output)
 
                 else if symbol < 256 then
-                    BitReader.succeed (Loop ( outputLength + 1, ByteArray.push symbol output ))
+                    BitReader.succeed (Loop { v1 = outputLength + 1, v2 = ByteArray.push symbol output })
 
                 else
-                    BitReader.map2 (\length offset -> Loop ( outputLength + length, ByteArray.copyToBack offset length output ))
+                    BitReader.map2 (\length offset -> Loop { v1 = outputLength + length, v2 = ByteArray.copyToBack offset length output })
                         (decodeLength symbol)
                         (decodeOffset outputLength trees.distance)
             )
@@ -484,7 +481,8 @@ decodeOffset : Int -> Tree -> BitReader Int
 decodeOffset outputLength dt =
     let
         table_ =
-            List.tail dt.table
+            Array.popFirst dt.table
+                |> Maybe.map .rest
                 |> Maybe.withDefault []
     in
     decodeSymbol table_ dt
@@ -517,24 +515,24 @@ inflateUncompressedBlock =
     BitReader
         (\state ->
             -- assumption: we are at a byte boundary
-            case Decode.decode (uncompressedBlockDecoder (Bytes.width state.buffer)) state.buffer of
+            case Decode.decode (uncompressedBlockDecoder (Bytes.length state.buffer)) state.buffer of
                 Nothing ->
                     Err "inflateUncompressedBlock: ran out of bounds"
 
-                Just ( block, newBuffer ) ->
-                    Ok ( block, { state | buffer = newBuffer } )
+                Just { v1 = block, v2 = newBuffer } ->
+                    Ok { v1 = block, v2 = { state | buffer = newBuffer } }
         )
 
 
-uncompressedBlockDecoder : Int -> Decode.Decoder ( Bytes, Bytes )
+uncompressedBlockDecoder : Int -> Decode.Decoder { v1 : Bytes, v2 : Bytes }
 uncompressedBlockDecoder bufferWidth =
     let
         decodeLengths =
-            Decode.map2 Tuple.pair (Decode.unsignedInt16 LE) (Decode.unsignedInt16 LE)
+            Decode.map2 (\a b -> { v1 = a, v2 = b }) (Decode.unsignedInt16 LE) (Decode.unsignedInt16 LE)
     in
     decodeLengths
         |> Decode.andThen
-            (\( length, invlength ) ->
+            (\{ v1 = length, v2 = invlength } ->
                 -- invlength has to be the complement of length for this block to be valid
                 -- like a small simple checksum
                 if length /= Bitwise.and (Bitwise.complement invlength) 0xFFFF then
@@ -545,5 +543,5 @@ uncompressedBlockDecoder bufferWidth =
                         remainingSize =
                             bufferWidth - 4 - length
                     in
-                    Decode.map2 Tuple.pair (Decode.bytes length) (Decode.bytes remainingSize)
+                    Decode.map2 (\ a b -> { v1 = a, v2 = b }) (Decode.bytes length) (Decode.bytes remainingSize)
             )
