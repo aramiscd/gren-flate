@@ -7,6 +7,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Decode exposing (Decoder)
 import Checksum.Adler32 as Adler32
 import Inflate.Internal as Internal
+import Math
 
 
 type alias Slices =
@@ -17,14 +18,23 @@ type alias Slices =
     }
 
 
+slicesConstructor : Int -> Int -> Bytes -> Int -> Slices
+slicesConstructor cmf flg buffer a32 =
+    { cmf = cmf
+    , flg = flg
+    , buffer = buffer
+    , a32 = a32
+    }
+
+
 slice : Bytes -> Maybe Slices
 slice buffer =
     let
         decoder =
-            Decode.map4 Slices
+            Decode.map4 slicesConstructor
                 Decode.unsignedInt8
                 Decode.unsignedInt8
-                (Decode.bytes (Bytes.width buffer - 2 - 4))
+                (Decode.bytes (Bytes.length buffer - 2 - 4))
                 decodeAdler32Checksum
     in
     Decode.decode decoder buffer
@@ -47,7 +57,7 @@ inflate buffer =
             Err InvalidSlice
 
         Just sliced ->
-            if ((256 * sliced.cmf + sliced.flg) |> modBy 31) /= 0 then
+            if ((256 * sliced.cmf + sliced.flg) |> Math.modBy 31) /= 0 then
                 -- /* check checksum */
                 Err InvalidChecksum
 
