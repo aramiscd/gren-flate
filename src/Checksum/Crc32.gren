@@ -1,6 +1,5 @@
 module Checksum.Crc32 exposing (crc32)
 
-import Array
 import Bitwise
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode
@@ -25,7 +24,7 @@ tinf_crc32 : Bytes -> Int
 tinf_crc32 buffer =
     let
         length =
-            Bytes.width buffer
+            Bytes.length buffer
 
         initialCrc =
             0xFFFFFFFF
