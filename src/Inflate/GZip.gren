@@ -41,17 +41,31 @@ type alias GzipSlice =
     }
 
 
+gzipSliceConstructor : Bytes -> Int -> Int -> Int -> Int -> Bytes -> Bytes -> Int -> Int -> GzipSlice
+gzipSliceConstructor orig id1 id2 method flg restOfHeader buffer crc32 decompressedLength =
+    { orig = orig
+    , id1 = id1
+    , id2 = id2
+    , method = method
+    , flg = flg
+    , restOfHeader = restOfHeader
+    , buffer = buffer
+    , crc32 = crc32
+    , decompressedLength = decompressedLength
+    }
+
+
 gzipSlice : Bytes -> Maybe GzipSlice
 gzipSlice buffer =
     let
         decoder =
-            Decode.succeed (GzipSlice buffer)
+            Decode.succeed (gzipSliceConstructor buffer)
                 |> andMap Decode.unsignedInt8
                 |> andMap Decode.unsignedInt8
                 |> andMap Decode.unsignedInt8
                 |> andMap Decode.unsignedInt8
                 |> andMap (Decode.bytes 6)
-                |> andMap (Decode.bytes (Bytes.width buffer - 10 - 4 - 4))
+                |> andMap (Decode.bytes (Bytes.length buffer - 10 - 4 - 4))
                 |> andMap (Decode.unsignedInt32 LE)
                 |> andMap (Decode.unsignedInt32 LE)
     in
@@ -140,7 +154,7 @@ gzipFindBuffer sliced =
                                             skipped =
                                                 skipped0 + skipped1
                                         in
-                                        Decode.bytes (Bytes.width sliced.buffer - skipped)
+                                        Decode.bytes (Bytes.length sliced.buffer - skipped)
                                     )
                         )
         in
