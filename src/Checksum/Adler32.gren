@@ -4,6 +4,7 @@ import Array
 import Bitwise
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode exposing (Decoder)
+import Math
 
 
 a32 =
@@ -60,15 +61,15 @@ processChunkHelp { remaining, s1, s2 } =
     else
         Decode.succeed
             (Decode.Done
-                { s1 = s1 |> remainderBy a32.base
-                , s2 = s2 |> remainderBy a32.base
+                { s1 = s1 |> Math.remainderBy a32.base
+                , s2 = s2 |> Math.remainderBy a32.base
                 }
             )
 
 
 adler32 : Bytes -> Int
 adler32 buffer =
-    case Decode.decode (chunkedFold { bufferSize = Bytes.width buffer, maxBlockSize = a32.nmax }) buffer of
+    case Decode.decode (chunkedFold { bufferSize = Bytes.length buffer, maxBlockSize = a32.nmax }) buffer of
         Nothing ->
             0
 
