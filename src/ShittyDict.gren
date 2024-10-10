@@ -1,0 +1,304 @@
+module ShittyDict exposing
+    ( Dict
+    , empty
+    , singleton
+    , set
+    , update
+    , updateWithDefault
+    , remove
+    , isEmpty
+    , count
+    , get
+    , member
+    , any
+    , all
+    , keys
+    , values
+    , map
+    , foldl
+    , foldr
+    , filter
+    , filterMap
+    , partition
+    , union
+    , intersect
+    , diff
+    )
+
+{-| A dictionary mapping keys to values. The keys can be any type.
+
+Ich portiere elm-flate von Elm nach Gren.  Der Code enthält viele Tupel.  Gren
+unterstützt keine Tupel.  Aber Tupel sind strukturell äquivalent zu Records.
+Also kann ich Tupel in vielen Fällen einfach durch Records ersetzen.  Aber an
+einigen Stellen im Code werden Tupel als Schlüssel in einem `Dict` verwendet.
+Leider sind Records nicht `comparable`.  Also kann ich diese Schlüssel nicht
+von Tupeln auf Records umstellen.  Arrays sind `comparable`.  Aber die Tupel,
+um die es geht, sind nicht monomorph.  Also sehe ich nur noch die Option,
+`comparable` ganz zu umschiffen.  Mittelfristig wird Gren Elm's `comparable`
+Hack durch parametrisierte Module (wie in OCaml) ersetzen.  Bis dahin brauche
+ich aber eine Notlösung.
+
+`ShittyDict` ist diese Notlösung.  Es kommt mit Schlüsseln aus, die nicht
+`comparable` sind.  Dafür ist das Lesen und Schreiben O(n) in der Laufzeit,
+also ziemlich schitty!  Da ich ohne `comparable` keinen Baum für die Schlüssel
+aufspannen kann, kann ich es nicht anders lösen.  Nicht-kommutative Faltungen
+sind ohne `comparable` von der Art und Reihenfolge der Operationen abhängig, die
+vorher auf dem Dictionary stattgefunden haben. Das ist auch ziemlich shitty!
+
+TODO: Unbedingt wieder raus damit, sobald parametrische Module verfügbar sind!
+-}
+
+
+{-| A dictionary of keys and values.
+-}
+type alias Dict k v
+    = Array { key : k, value : v }
+
+
+{-| Create an empty dictionary.
+-}
+empty : Dict k v
+empty =
+    []
+
+
+{-| Get the value associated with a key.
+-}
+get : k -> Dict k v -> Maybe v
+get key dict =
+    case Array.popFirst dict of
+        Nothing ->
+            Nothing
+        Just { first, rest } ->
+            if first.key == key
+            then Just first.value
+            else get key rest
+
+
+{-| Determine if a key is in a dictionary.
+-}
+member : k -> Dict k v -> Bool
+member key dict =
+    case get key dict of
+        Just _ -> True
+        Nothing -> False
+
+
+{-| Determine the number of key-value pairs in the dictionary.
+-}
+count : Dict k v -> Int
+count dict =
+    Array.length dict
+
+
+{-| Checks if any key-value pair in the dictionary passes the test.
+-}
+any : (k -> v -> Bool) -> Dict k v -> Bool
+any fn dict =
+    case Array.popFirst dict of
+        Nothing ->
+            False
+        Just { first, rest } ->
+            fn first.key first.value || any fn rest
+
+
+{-| Checks if all key-value pairs in the dictionary passes the test.
+-}
+all : (k -> v -> Bool) -> Dict k v -> Bool
+all fn dict =
+    case Array.popFirst dict of
+        Nothing ->
+            False
+        Just { first, rest } ->
+            fn first.key first.value && any fn rest
+
+
+{-| Determine if a dictionary is empty.
+-}
+isEmpty : Dict k v -> Bool
+isEmpty dict =
+    dict == []
+
+
+{-| Sets a value for a given key.
+-}
+set : k -> v -> Dict k v -> Dict k v
+set key value dict =
+    case Array.popFirst dict of
+        Nothing ->
+            [{ key = key, value = value }]
+        Just { first, rest } ->
+            if
+                first.key == key
+            then
+                Array.pushFirst { key = key, value = value } rest
+            else
+                Array.pushFirst first (set key value rest)
+
+
+{-| Remove a key-value pair from a dictionary.
+-}
+remove : k -> Dict k v -> Dict k v
+remove key dict =
+    case Array.popFirst dict of
+        Nothing ->
+            []
+        Just { first, rest } ->
+            if first.key == key
+            then rest
+            else Array.pushFirst first (remove key rest)
+
+
+{-| Update the value of a dictionary for a specific key with a given function.
+-}
+update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
+update targetKey alter dictionary =
+    case alter (get targetKey dictionary) of
+        Nothing ->
+            remove targetKey dictionary
+        Just value ->
+            set targetKey value dictionary
+
+
+{-| Same as `update` but if the key doesn't exist in the dictionary, a default value
+is passed to the provided update function instead of a `Maybe`.
+-}
+updateWithDefault : k -> v -> (v -> v) -> Dict k v -> Dict k v
+updateWithDefault targetKey defaultValue alter dictionary =
+    case get targetKey dictionary of
+        Nothing ->
+            set targetKey (alter defaultValue) dictionary
+        Just value ->
+            set targetKey (alter value) dictionary
+
+
+{-| Create a dictionary with one key-value pair.
+-}
+singleton : k -> v -> Dict k v
+singleton key value =
+    [{ key = key, value = value }]
+
+
+
+-- COMBINE
+
+
+{-| Combine two dictionaries. If there is a collision, preference is given
+to the first dictionary.
+-}
+union : Dict k v -> Dict k v -> Dict k v
+union t1 t2 =
+    foldl set t2 t1
+
+
+{-| Keep a key-value pair when its key appears in the second dictionary.
+Preference is given to values in the first dictionary.
+-}
+intersect : Dict k v -> Dict k v -> Dict k v
+intersect t1 t2 =
+    filter (\ k _ -> member k t2) t1
+
+
+{-| Keep a key-value pair when its key does not appear in the second dictionary.
+-}
+diff : Dict k a -> Dict k b -> Dict k a
+diff t1 t2 =
+    foldl (\ k v t -> remove k t) t1 t2
+
+
+
+-- TRANSFORM
+
+
+{-| Apply a function to all values in a dictionary.
+-}
+map : (k -> a -> b) -> Dict k a -> Dict k b
+map func dict =
+    case Array.popFirst dict of
+        Nothing ->
+            []
+        Just { first, rest } ->
+            Array.pushFirst { key = first.key, value = func first.key first.value } (map func rest)
+
+
+{-| Fold over the key-value pairs in a dictionary.
+-}
+foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
+foldl func acc dict =
+    case Array.popFirst dict of
+        Nothing ->
+            acc
+        Just { first, rest } ->
+            foldl func (func first.key first.value acc) rest
+
+
+{-| Fold over the key-value pairs in a dictionary from highest key to lowest key.
+-}
+foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
+foldr func acc dict =
+    case Array.popLast dict of
+        Nothing ->
+            acc
+        Just { initial, last } ->
+            foldr func (func last.key last.value acc) initial
+
+
+{-| Keep only the key-value pairs that pass the given test.
+-}
+filter : (k -> v -> Bool) -> Dict k v -> Dict k v
+filter isGood dict =
+    foldl (\ k v d -> if isGood k v then set k v d else d ) empty dict
+
+
+{-| Filter out unwanted results of a map operation.
+-}
+filterMap : (k -> v -> Maybe x) -> Dict k v -> Dict k x
+filterMap toMaybe dict =
+    foldl
+        (\ k v d ->
+            case toMaybe k v of
+                Nothing -> d
+                Just newValue -> set k newValue d
+        )
+        empty
+        dict
+
+
+{-| Partition a dictionary according to some test. The first dictionary
+contains all key-value pairs which passed the test, and the second contains
+the pairs that did not.
+-}
+partition : (k -> v -> Bool) -> Dict k v -> { trues : Dict k v, falses : Dict k v }
+partition isGood dict =
+    let
+        add key value { trues, falses } =
+            if
+                isGood key value
+            then
+                { trues = set key value trues
+                , falses = falses
+                }
+            else
+                { trues = trues
+                , falses = set key value falses
+                }
+    in
+        foldl add { trues = empty, falses = empty } dict
+
+
+
+-- ARRAYS
+
+
+{-| Get all of the keys in a dictionary, sorted from lowest to highest.
+-}
+keys : Dict k v -> Array k
+keys dict =
+    foldl (\ key value keyArray -> Array.pushLast key keyArray) [] dict
+
+
+{-| Get all of the values in a dictionary, in the order of their keys.
+-}
+values : Dict k v -> Array v
+values dict =
+    foldl (\ key value valueArray -> Array.pushLast value valueArray) [] dict

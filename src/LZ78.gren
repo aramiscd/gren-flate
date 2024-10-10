@@ -1,16 +1,11 @@
 module LZ78 exposing (decode, encode)
 
 import Array exposing (Array)
-import Dict
+import ShittyDict as Dict
 
 
 type alias Token a =
-    ( Int, a )
-
-
-token x y =
-    ( x, y )
-
+    { v1 : Int, v2 : a }
 
 
 -- | An LZ78 compressed 'Generator'.
@@ -25,7 +20,7 @@ type LZ78 a
 -- | /O(n log n)/ Contruct an LZ78-compressed 'Generator' using a 'Dict' internally.
 
 
-encode : List comparable -> LZ78 comparable
+encode : Array k -> LZ78 k
 encode =
     let
         go d f p list =
@@ -33,32 +28,32 @@ encode =
                 _ =
                     Debug.log "dict" d
             in
-            case list of
-                [] ->
+            case Array.popFirst list of
+                Nothing ->
                     Nil
 
-                [ c ] ->
-                    Cons (token p c) Nil
+                Just { first = c, rest = [] } ->
+                    Cons { v1 = p, v2 = c } Nil
 
-                c :: cs ->
+                Just { first = c, rest = cs } ->
                     let
                         t =
-                            token p c
+                            { v1 = p, v2 = c }
                     in
                     case Dict.get t d of
                         Just p_ ->
                             go d f p_ cs
 
                         Nothing ->
-                            Cons t (go (Dict.insert t f d) (f + 1) 0 cs)
+                            Cons t (go (Dict.set t f d) (f + 1) 0 cs)
     in
     go Dict.empty 1 0
 
 
-mapTo : (b -> a) -> List a -> LZ78 b -> List a
+mapTo : (b -> a) -> Array a -> LZ78 b -> Array a
 mapTo =
     let
-        go : Array (List a) -> (b -> a) -> List a -> LZ78 b -> List a
+        go : Array (Array a) -> (b -> a) -> Array a -> LZ78 b -> Array a
         go cache f m structure =
             let
                 _ =
@@ -68,7 +63,7 @@ mapTo =
                 Nil ->
                     m
 
-                Cons ( width, c ) ws ->
+                Cons { v1 = width, v2 = c } ws ->
                     let
                         v =
                             case Array.get width cache of
@@ -79,7 +74,7 @@ mapTo =
                                     -- unreachable!
                                     [ f c ]
                     in
-                    m ++ go (Array.push v cache) f v ws
+                    m ++ go (Array.pushLast v cache) f v ws
     in
     go (Array.repeat 1 [])
 
@@ -88,11 +83,11 @@ decode =
     reduce << Debug.log "encoded"
 
 
-reduce : LZ78 a -> List a
+reduce : LZ78 a -> Array a
 reduce =
     mapReduce identity
 
 
-mapReduce : (b -> a) -> LZ78 b -> List a
+mapReduce : (b -> a) -> LZ78 b -> Array a
 mapReduce f =
     mapTo f []
