@@ -1,18 +1,17 @@
 module Deflate.BitWriter exposing (BitWriter, empty, flush, run, writeBit, writeBits, writeEncoder)
 
-import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Endianness(..))
 import Bytes.Encode as Encode exposing (Encoder)
 
 
 type alias BitWriter =
-    { tag : Int, bitsWritten : Int, encoders : List Encoder }
+    { tag : Int, bitsWritten : Int, encoders : Array Encoder }
 
 
-run : BitWriter -> List Encoder
+run : BitWriter -> Array Encoder
 run state =
-    List.reverse state.encoders
+    Array.reverse state.encoders
 
 
 empty : BitWriter
@@ -47,15 +46,15 @@ This is only safe if the reader was just flushed, otherwise some of the data mig
 -}
 writeEncoder : Encoder -> BitWriter -> BitWriter
 writeEncoder encoder state =
-    { tag = state.tag, bitsWritten = state.bitsWritten, encoders = encoder :: state.encoders }
+    { tag = state.tag, bitsWritten = state.bitsWritten, encoders = Array.pushFirst encoder state.encoders }
 
 
 {-| flush the lower 16 bits
 -}
-flushIfNeeded : Int -> Int -> List Encoder -> BitWriter
+flushIfNeeded : Int -> Int -> Array Encoder -> BitWriter
 flushIfNeeded tag bitsWritten encoders =
     if bitsWritten >= 16 then
-        { encoders = Encode.unsignedInt16 LE tag :: encoders
+        { encoders = Array.pushFirst (Encode.unsignedInt16 LE tag) encoders
         , bitsWritten = bitsWritten - 16
         , tag = Bitwise.shiftRightBy 16 tag
         }
@@ -71,10 +70,10 @@ flush state =
     flushLoop state.tag state.bitsWritten state.encoders
 
 
-flushLoop : Int -> Int -> List Encoder -> BitWriter
+flushLoop : Int -> Int -> Array Encoder -> BitWriter
 flushLoop tag bitsWritten encoders =
     if bitsWritten > 0 then
-        flushLoop (Bitwise.shiftRightBy 8 tag) (max 0 (bitsWritten - 8)) (Encode.unsignedInt8 tag :: encoders)
+        flushLoop (Bitwise.shiftRightBy 8 tag) (max 0 (bitsWritten - 8)) (Array.pushFirst (Encode.unsignedInt8 tag) encoders)
 
     else
         { tag = tag, bitsWritten = bitsWritten, encoders = encoders }
