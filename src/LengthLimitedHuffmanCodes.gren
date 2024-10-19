@@ -6,9 +6,6 @@ but the implementation is not as efficient
 
 -}
 
-import Array exposing (Array)
-import List.Extra
-
 
 type alias Node =
     { symbols : Array Int, weight : Int }
@@ -35,31 +32,28 @@ calculate maxBitWidth frequencies =
     let
         source =
             frequencies
-                |> Array.indexedMap Tuple.pair
-                |> Array.filter (\( _, f ) -> f > 0)
-                |> Array.map (\( symbol, weight ) -> singletonNode symbol weight)
-                |> Array.toList
-                |> List.Extra.stableSortWith (\a b -> compare a.weight b.weight)
-                |> Array.fromList
+                |> Array.indexedMap ( \ v1 v2 -> { v1 = v1, v2 = v2 } )
+                |> Array.filter ( \ { v1 = _, v2 = f } -> f > 0 )
+                |> Array.map ( \ { v1 = symbol, v2 = weight } -> singletonNode symbol weight )
+                |> stableSortWith ( \ a b -> compare a.weight b.weight )
 
         weighted =
             -- -2 because rust ranges are exclusive, elm's are inclusive
-            List.range 0 (maxBitWidth - 2)
-                |> List.foldl (\_ w -> merge (package w) source) source
+            Array.range 0 (maxBitWidth - 2)
+                |> Array.foldl ( \ _ w -> merge (package w) source ) source
 
         allSymbols =
             weighted
                 |> package
-                |> Array.toList
-                |> List.concatMap (.symbols >> Array.toList)
+                |> Array.flatMap .symbols
 
         loop symbols accum =
-            case symbols of
-                [] ->
+            case Array.popFirst symbols of
+                Nothing ->
                     accum
 
-                symbol :: rest ->
-                    loop rest (update symbol (\v -> v + 1) accum)
+                Just { first = symbol, rest } ->
+                    loop rest (update symbol ( \ v -> v + 1 ) accum)
     in
     loop allSymbols (Array.repeat (Array.length frequencies) 0)
 
@@ -81,15 +75,20 @@ package nodes =
                 Array.length nodes // 2
 
             loop currentNodes accum =
-                case currentNodes of
-                    self :: other :: rest ->
-                        loop rest (mergeNodes self other :: accum)
-
-                    _ ->
+                case Array.popFirst currentNodes of
+                    Nothing ->
                         -- we round down, so 0 and 1 elements are treated the same
-                        Array.fromList (List.reverse accum)
+                        Array.reverse accum
+
+                    Just { first = self, rest = rest1 } ->
+                        case Array.popFirst rest1 of
+                            Nothing ->
+                                Array.reverse accum
+
+                            Just { first = other, rest = rest2 } ->
+                                loop rest2 (Array.pushFirst (mergeNodes self other) accum)
         in
-        loop (Array.toList nodes) []
+        loop nodes []
 
     else
         nodes
@@ -97,21 +96,27 @@ package nodes =
 
 merge : Array Node -> Array Node -> Array Node
 merge x y =
-    mergeLoop (Array.toList x) (Array.toList y) Array.empty
+    mergeLoop x y Array.empty
 
 
-mergeLoop : List Node -> List Node -> Array Node -> Array Node
+mergeLoop : Array Node -> Array Node -> Array Node -> Array Node
 mergeLoop xarr yarr accum =
-    case ( xarr, yarr ) of
-        ( [], _ ) ->
-            Array.append accum (Array.fromList yarr)
+    case { v1 = Array.popFirst xarr, v2 = Array.popFirst yarr } of
+        { v1 = Nothing, v2 = _ } ->
+            Array.append accum yarr
 
-        ( _, [] ) ->
-            Array.append accum (Array.fromList xarr)
+        { v1 = _, v2 = Nothing } ->
+            Array.append accum xarr
 
-        ( x :: xrest, y :: yrest ) ->
+        { v1 = Just { first = x, rest = xrest }, v2 = Just { first = y, rest = yrest } } ->
             if x.weight < y.weight then
-                mergeLoop xrest yarr (Array.push x accum)
+                mergeLoop xrest yarr (Array.pushLast x accum)
 
             else
-                mergeLoop xarr yrest (Array.push y accum)
+                mergeLoop xarr yrest (Array.pushLast y accum)
+
+
+stableSortWith =
+    -- Ich ziehe das hier als Zwischenschicht ein, weil ich nicht weiß, ob Array.sortWith stabil ist.
+    -- TODO: Kläre, ob Array.sortWith stabil ist.
+    Array.sortWith
