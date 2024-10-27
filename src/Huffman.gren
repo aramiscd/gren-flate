@@ -1,10 +1,8 @@
-module Huffman exposing (Code, Tree, codeFromRecord, encode, fromFrequencies, fromList, getBits, getWidth, hardcodedStaticHuffmanTree, inverseEndian, lookup, new, newCode, restoreCanonicalHuffmanCodes, setMapping, usedMaxSymbol)
+module Huffman exposing (Code, Tree, codeFromRecord, encode, fromFrequencies, fromArray, getBits, getWidth, hardcodedStaticHuffmanTree, inverseEndian, lookup, new, newCode, restoreCanonicalHuffmanCodes, setMapping, usedMaxSymbol)
 
-import Array exposing (Array)
 import Bitwise
 import Deflate.BitWriter as BitWriter exposing (BitWriter)
 import LengthLimitedHuffmanCodes
-import List.Extra
 
 
 type Code
@@ -35,9 +33,9 @@ type Tree
     = Tree (Array Code)
 
 
-fromList : List { width : Int, bits : Int } -> Tree
-fromList =
-    Tree << Array.fromList << List.map codeFromRecord
+fromArray : Array { width : Int, bits : Int } -> Tree
+fromArray =
+    Tree << Array.map codeFromRecord
 
 
 encode : Int -> Tree -> BitWriter -> BitWriter
@@ -103,22 +101,30 @@ calcOptimalMaxBitWidth frequencies =
 
         createHeapFolder freq heap =
             if freq > 0 then
-                ( -freq, 0 ) :: heap
+                Array.pushFirst [ -freq, 0 ] heap
 
             else
                 heap
 
         heapModificationLoop heap =
-            case heap of
-                [] ->
+            case Array.popFirst heap of
+                Nothing ->
                     0
 
-                [ ( _, value ) ] ->
-                    max 1 value
+                Just { first = [ weight1, width1 ], rest = rest1 } ->
+                    case Array.popFirst rest1 of
+                        Nothing ->
+                            max 1 width1
 
-                ( weight1, width1 ) :: ( weight2, width2 ) :: rest ->
-                    -- flip comparison to get a max-heap
-                    heapModificationLoop (List.sortWith (\a b -> compare b a) (( weight1 + weight2, 1 + max width1 width2 ) :: rest))
+                        Just { first = [ weight2, width2 ], rest = rest2 } ->
+                            -- flip comparison to get a max-heap
+                            heapModificationLoop
+                                ( Array.sortWith
+                                    ( \ a b -> compare b a )
+                                    ( Array.pushFirst [ weight1 + weight2, 1 + max width1 width2 ] rest2 )
+                                )
+                        _ -> 0 -- length first > 2 sollte nie auftreten
+                _ -> 0 -- length first > 2 sollte nie auftreten
     in
     heapModificationLoop createHeap
 
@@ -127,10 +133,10 @@ fromBitWidths bitWidths =
     let
         symbolCount =
             bitWidths
-                |> Array.indexedMap Tuple.pair
-                |> Array.filter (\e -> Tuple.second e > 0)
+                |> Array.indexedMap ( \ v1 v2 -> { v1 = v1, v2 = v2 } )
+                |> Array.filter (\e -> e.v2 > 0)
                 |> (\a -> Array.get (Array.length a - 1) a)
-                |> Maybe.map Tuple.first
+                |> Maybe.map .v2
                 |> Maybe.withDefault 0
                 |> (\v -> v + 1)
     in
@@ -142,12 +148,11 @@ restoreCanonicalHuffmanCodes bitWidths tree =
     let
         symbols =
             bitWidths
-                |> Array.indexedMap Tuple.pair
-                |> Array.filter (\( _, codeBitWidth ) -> codeBitWidth > 0)
-                |> Array.toList
-                |> List.Extra.stableSortWith (\( _, a ) ( _, b ) -> compare a b)
+                |> Array.indexedMap ( \ v1 v2 -> { v1 = v1, v2 = v2 } )
+                |> Array.filter ( \ { v1 = _, v2 = codeBitWidth } -> codeBitWidth > 0 )
+                |> stableSortWith ( \ { v1 = _, v2 = a } { v1 = _, v2 = b } -> compare a b )
 
-        loop ( symbol, bitWidth ) ( code, prevWidth, currentTree ) =
+        loop { v1 = symbol, v2 = bitWidth } { v1 = code, v2 = prevWidth, v3 = currentTree } =
             let
                 newBits =
                     Bitwise.shiftLeftBy (bitWidth - prevWidth) code
@@ -155,45 +160,45 @@ restoreCanonicalHuffmanCodes bitWidths tree =
                 nextCode =
                     Code { width = bitWidth, bits = newBits }
             in
-            ( newBits + 1, bitWidth, setMapping symbol nextCode currentTree )
+            { v1 = newBits + 1, v2 = bitWidth, v3 = setMapping symbol nextCode currentTree }
     in
-    List.foldl loop ( 0, 0, tree ) symbols
-        |> (\( _, _, x ) -> x)
+    Array.foldl loop { v1 = 0, v2 = 0, v3 = tree } symbols
+        |> ( \ { v1 = _, v2 = _, v3 = x } -> x )
 
 
 usedMaxSymbol : Tree -> Maybe Int
 usedMaxSymbol (Tree array) =
     array
-        |> positionFromTheEnd (\(Code value) -> value.width > 0)
-        |> Maybe.map (\trailingZeros -> Array.length array - 1 - trailingZeros)
+        |> positionFromTheEnd ( \ (Code value) -> value.width > 0 )
+        |> Maybe.map ( \ trailingZeros -> Array.length array - 1 - trailingZeros )
 
 
 positionFromTheEnd predicated array =
     let
-        folder element ( index, accum ) =
+        folder element { v1 = index, v2 = accum } =
             case accum of
                 Just _ ->
-                    ( index, accum )
+                    { v1 = index, v2 = accum }
 
                 Nothing ->
                     if predicated element then
-                        ( index, Just index )
+                        { v1 = index, v2 = Just index }
 
                     else
-                        ( index - 1, Nothing )
+                        { v1 = index - 1, v2 = Nothing }
 
         finalIndex =
             Array.length array - 1
     in
-    Array.foldr folder ( finalIndex, Nothing ) array
-        |> Tuple.second
-        |> Maybe.map (\v -> finalIndex - v)
+    Array.foldr folder { v1 = finalIndex, v2 = Nothing } array
+        |> .v2
+        |> Maybe.map ( \ v -> finalIndex - v )
 
 
 hardcodedStaticHuffmanTree : { literal : Tree, distance : Tree }
 hardcodedStaticHuffmanTree =
     { literal =
-        fromList
+        fromArray
             [ { width = 8, bits = 12 }
             , { width = 8, bits = 140 }
             , { width = 8, bits = 76 }
@@ -484,7 +489,7 @@ hardcodedStaticHuffmanTree =
             , { width = 8, bits = 227 }
             ]
     , distance =
-        fromList
+        fromArray
             [ { width = 5, bits = 0 }
             , { width = 5, bits = 16 }
             , { width = 5, bits = 8 }
@@ -517,3 +522,9 @@ hardcodedStaticHuffmanTree =
             , { width = 5, bits = 23 }
             ]
     }
+
+
+stableSortWith =
+    -- Ich ziehe das hier als Zwischenschicht ein, weil ich nicht weiß, ob Array.sortWith stabil ist.
+    -- TODO: Kläre, ob Array.sortWith stabil ist.
+    Array.sortWith
