@@ -1,11 +1,11 @@
 module Deflate.Symbol exposing (Symbol(..), buildBitWidthCodes, buildDynamicHuffmanCodec, buildFixedHuffmanCodec, calculateCodes, calculateRunLengths, code, dynamicFindFrequencies, encode, writeDynamicHuffmanCodec)
 
-import Array exposing (Array)
 import Deflate.BitWriter as BitWriter exposing (BitWriter)
 import Huffman as Huffman
+import Math
 
 
-bitwidth_code_order : List Int
+bitwidth_code_order : Array Int
 bitwidth_code_order =
     [ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 ]
 
@@ -52,7 +52,7 @@ code symbol =
                 -1
 
 
-extraLength : Symbol -> Maybe ( Int, Int )
+extraLength : Symbol -> Maybe { v1 : Int, v2 : Int }
 extraLength symbol =
     case symbol of
         Share length _ ->
@@ -60,19 +60,19 @@ extraLength symbol =
                 Nothing
 
             else if length >= 11 && length <= 18 then
-                Just ( 1, (length - 11) |> modBy 2 )
+                Just { v1 = 1, v2 = (length - 11) |> Math.modBy 2 }
 
             else if length >= 19 && length <= 34 then
-                Just ( 2, (length - 19) |> modBy 4 )
+                Just { v1 = 2, v2 = (length - 19) |> Math.modBy 4 }
 
             else if length >= 35 && length <= 66 then
-                Just ( 3, (length - 35) |> modBy 8 )
+                Just { v1 = 3, v2 = (length - 35) |> Math.modBy 8 }
 
             else if length >= 67 && length <= 130 then
-                Just ( 4, (length - 67) |> modBy 16 )
+                Just { v1 = 4, v2 = (length - 67) |> Math.modBy 16 }
 
             else if length >= 131 && length <= 257 then
-                Just ( 5, (length - 131) |> modBy 32 )
+                Just { v1 = 5, v2 = (length - 131) |> Math.modBy 32 }
 
             else
                 -- unreachable
@@ -82,12 +82,12 @@ extraLength symbol =
             Nothing
 
 
-distance : Symbol -> Maybe ( Int, Int, Int )
+distance : Symbol -> Maybe { v1 : Int, v2 : Int, v3 : Int }
 distance symbol =
     case symbol of
         Share _ distance_ ->
             if distance_ <= 4 then
-                Just ( distance_ - 1, 0, 0 )
+                Just { v1 = distance_ - 1, v2 = 0, v3 = 0 }
 
             else
                 let
@@ -96,10 +96,10 @@ distance symbol =
                             go (extraBits + 1) (code_ + 2) (base * 2)
 
                         else
-                            ( extraBits, code_, base )
+                            { v1 = extraBits, v2 = code_, v3 = base }
                 in
                 let
-                    ( extraBits, code_, base ) =
+                    { v1 = extraBits, v2 = code_, v3 = base } =
                         go 1 4 4
 
                     half =
@@ -109,10 +109,10 @@ distance symbol =
                         distance_ - base - 1
                 in
                 if distance_ <= base + half then
-                    Just ( code_, extraBits, delta |> modBy half )
+                    Just { v1 = code_, v2 = extraBits, v3 = delta |> Math.modBy half }
 
                 else
-                    Just ( code_ + 1, extraBits, delta |> modBy half )
+                    Just { v1 = code_ + 1, v2 = extraBits, v3 = delta |> Math.modBy half }
 
         _ ->
             Nothing
@@ -126,7 +126,7 @@ encode symbol htrees bitWriter =
                 Nothing ->
                     identity
 
-                Just ( bits, extra ) ->
+                Just { v1 = bits, v2 = extra } ->
                     BitWriter.writeBits bits extra
 
         maybeDistance =
@@ -134,7 +134,7 @@ encode symbol htrees bitWriter =
                 Nothing ->
                     identity
 
-                Just ( code_, bits, extra ) ->
+                Just { v1 = code_, v2 = bits, v3 = extra } ->
                     Huffman.encode code_ htrees.distance
                         >> (if bits > 0 then
                                 BitWriter.writeBits bits extra
@@ -158,32 +158,32 @@ type Range
 
 
 fixed_literal_or_length_code_table =
-    [ ( 8, Range 0 144, 48 )
-    , ( 9, Range 144 256, 400 )
-    , ( 7, Range 256 280, 0 )
-    , ( 8, Range 280 288, 192 )
+    [ { v1 = 8, v2 = Range 0 144, v3 = 48 }
+    , { v1 = 9, v2 = Range 144 256, v3 = 400 }
+    , { v1 = 7, v2 = Range 256 280, v3 = 0 }
+    , { v1 = 8, v2 = Range 280 288, v3 = 192 }
     ]
 
 
 buildFixedHuffmanCodec : { literal : Huffman.Tree, distance : Huffman.Tree }
 buildFixedHuffmanCodec =
     let
-        innerFolder bitwidth ( code_, symbol ) currentTree =
+        innerFolder bitwidth { v1 = code_, v2 = symbol } currentTree =
             Huffman.setMapping symbol (Huffman.newCode bitwidth code_) currentTree
 
-        folder ( bitwidth, (Range start end) as symbols, codeBase ) huffmanTree =
+        folder { v1 = bitwidth, v2 = (Range start end) as symbols, v3 = codeBase } huffmanTree =
             let
                 domain =
-                    List.indexedMap (\i s -> ( codeBase + 1, s )) (List.range start end)
+                    Array.indexedMap (\i s -> { v1 = codeBase + 1, v2 = s }) (Array.range start end)
             in
-            List.foldl (innerFolder bitwidth) huffmanTree domain
+            Array.foldl (innerFolder bitwidth) huffmanTree domain
 
         literal =
-            List.foldl folder (Huffman.new 288) fixed_literal_or_length_code_table
+            Array.foldl folder (Huffman.new 288) fixed_literal_or_length_code_table
 
         distance_ =
-            List.range 0 (30 - 1)
-                |> List.foldl (\i huffmanTree -> Huffman.setMapping i (Huffman.newCode 5 i) huffmanTree) (Huffman.new 30)
+            Array.range 0 (30 - 1)
+                |> Array.foldl (\i huffmanTree -> Huffman.setMapping i (Huffman.newCode 5 i) huffmanTree) (Huffman.new 30)
     in
     { literal = literal, distance = distance_ }
 
@@ -191,8 +191,8 @@ buildFixedHuffmanCodec =
 buildDynamicHuffmanCodec : Array Symbol -> { literal : Huffman.Tree, distance : Huffman.Tree }
 buildDynamicHuffmanCodec symbols =
     let
-        ( literalCounts, distanceCounts, emptyDistanceCount ) =
-            Array.foldl dynamicFindFrequencies ( Array.repeat 286 0, Array.repeat 30 0, True ) symbols
+        { v1 = literalCounts, v2 = distanceCounts, v3 = emptyDistanceCount } =
+            Array.foldl dynamicFindFrequencies { v1 = Array.repeat 286 0, v2 = Array.repeat 30 0, v3 = True } symbols
     in
     { literal = Huffman.fromFrequencies literalCounts 15
     , distance =
@@ -204,17 +204,17 @@ buildDynamicHuffmanCodec symbols =
     }
 
 
-dynamicFindFrequencies : Symbol -> ( Array Int, Array Int, Bool ) -> ( Array Int, Array Int, Bool )
-dynamicFindFrequencies symbol ( literalCounts, distanceCounts, emptyDistanceCount ) =
+dynamicFindFrequencies : Symbol -> { v1 : Array Int, v2 : Array Int, v3 : Bool } -> { v1 : Array Int, v2 : Array Int, v3 : Bool }
+dynamicFindFrequencies symbol { v1 = literalCounts, v2 = distanceCounts, v3 = emptyDistanceCount } =
     case distance symbol of
         Nothing ->
-            ( update (code symbol) (\v -> v + 1) literalCounts, distanceCounts, emptyDistanceCount )
+            { v1 = update (code symbol) (\v -> v + 1) literalCounts, v2 = distanceCounts, v3 = emptyDistanceCount }
 
-        Just ( d, _, _ ) ->
-            ( update (code symbol) (\v -> v + 1) literalCounts
-            , update d (\v -> v + 1) distanceCounts
-            , False
-            )
+        Just { v1 = d, v2 = _, v3 = _ } ->
+            { v1 = update (code symbol) (\v -> v + 1) literalCounts
+            , v2 = update d (\v -> v + 1) distanceCounts
+            , v3 = False
+            }
 
 
 update index tagger array =
@@ -239,7 +239,7 @@ writeDynamicHuffmanCodec trees bitWriter =
             buildBitWidthCodes literal_code_count distance_code_count { literal = trees.literal, distance = trees.distance }
 
         codeCounts =
-            Array.foldl (\( i, _, _ ) -> update i (\v -> v + 1)) (Array.repeat 19 0) codes
+            Array.foldl (\{ v1 = i, v2 = _, v3 = _ } -> update i (\v -> v + 1)) (Array.repeat 19 0) codes
 
         bitWidthEncoder =
             Huffman.fromFrequencies codeCounts 7
@@ -247,7 +247,7 @@ writeDynamicHuffmanCodec trees bitWriter =
         bitwidthCodeCount =
             max 4
                 (bitwidth_code_order
-                    |> List.reverse
+                    |> Array.reverse
                     |> position
                         (\i ->
                             case Huffman.lookup i bitWidthEncoder of
@@ -263,8 +263,8 @@ writeDynamicHuffmanCodec trees bitWriter =
 
         v1 : BitWriter -> BitWriter
         v1 writer =
-            List.take bitwidthCodeCount bitwidth_code_order
-                |> List.foldl
+            Array.takeFirst bitwidthCodeCount bitwidth_code_order
+                |> Array.foldl
                     (\i current ->
                         let
                             width =
@@ -285,7 +285,7 @@ writeDynamicHuffmanCodec trees bitWriter =
         v2 writer =
             codes
                 |> Array.foldl
-                    (\( code_, bits, extra ) current ->
+                    (\{ v1 = code_, v2 = bits, v3 = extra } current ->
                         if bits > 0 then
                             current
                                 |> Huffman.encode code_ bitWidthEncoder
@@ -313,54 +313,54 @@ type alias RunLength =
     { value : Int, count : Int }
 
 
-buildBitWidthCodes : Int -> Int -> { literal : Huffman.Tree, distance : Huffman.Tree } -> Array ( Int, Int, Int )
+buildBitWidthCodes : Int -> Int -> { literal : Huffman.Tree, distance : Huffman.Tree } -> Array { v1 : Int, v2 : Int, v3 : Int }
 buildBitWidthCodes literalCodeCount distanceCodeCount trees =
     let
         runLengths =
-            calculateRunLengths [ ( trees.literal, literalCodeCount ), ( trees.distance, distanceCodeCount ) ] []
+            calculateRunLengths [ { v1 = trees.literal, v2 = literalCodeCount }, { v1 = trees.distance, v2 = distanceCodeCount } ] []
     in
     calculateCodes runLengths
 
 
-calculateRunLengths : List ( Huffman.Tree, Int ) -> List RunLength -> Array RunLength
+calculateRunLengths : Array { v1 : Huffman.Tree, v2 : Int } -> Array RunLength -> Array RunLength
 calculateRunLengths lengths accum =
-    case lengths of
-        [] ->
-            List.foldr Array.push Array.empty accum
+    case Array.popFirst lengths of
+        Nothing ->
+            Array.foldr Array.pushLast Array.empty accum
 
-        ( e, size ) :: rest ->
+        Just { first = { v1 = e, v2 = size }, rest = rest } ->
             let
                 list =
-                    List.range 0 (size - 1)
-                        |> List.map (\x -> Huffman.lookup x e |> Maybe.map Huffman.getWidth |> Maybe.withDefault 0)
-                        |> List.indexedMap Tuple.pair
+                    Array.range 0 (size - 1)
+                        |> Array.map (\x -> Huffman.lookup x e |> Maybe.map Huffman.getWidth |> Maybe.withDefault 0)
+                        |> Array.indexedMap ( \ v1 v2 -> { v1 = v1, v2 = v2 } )
 
-                folder ( i, c ) runLengths =
-                    case runLengths of
-                        [] ->
-                            { value = c, count = 1 } :: runLengths
+                folder { v1 = i, v2 = c } runLengths =
+                    case Array.popFirst runLengths of
+                        Nothing ->
+                            Array.pushFirst { value = c, count = 1 } runLengths
 
-                        last :: remaining ->
+                        Just { first = last, rest = remaining } ->
                             if last.value == c then
-                                { value = last.value, count = last.count + 1 } :: remaining
+                                Array.pushFirst { value = last.value, count = last.count + 1 } remaining
 
                             else
-                                { value = c, count = 1 } :: runLengths
+                                Array.pushFirst { value = c, count = 1 } runLengths
             in
-            calculateRunLengths rest (List.foldl folder accum list)
+            calculateRunLengths rest (Array.foldl folder accum list)
 
 
-position : (a -> Bool) -> List a -> Maybe Int
+position : (a -> Bool) -> Array a -> Maybe Int
 position predicate elements =
     positionLoop predicate 0 elements
 
 
 positionLoop predicate i elements =
-    case elements of
-        [] ->
+    case Array.popFirst elements of
+        Nothing ->
             Nothing
 
-        x :: xs ->
+        Just { first = x, rest = xs } ->
             if predicate x then
                 Just i
 
@@ -368,7 +368,7 @@ positionLoop predicate i elements =
                 positionLoop predicate (i + 1) xs
 
 
-calculateCodes : Array RunLength -> Array ( Int, Int, Int )
+calculateCodes : Array RunLength -> Array { v1 : Int, v2 : Int, v3 : Int }
 calculateCodes runLengths =
     let
         loop1 c codes =
@@ -377,13 +377,13 @@ calculateCodes runLengths =
                     n =
                         min 138 c
                 in
-                loop1 (c - n) (Array.push ( 18, 7, n - 11 ) codes)
+                loop1 (c - n) (Array.pushLast { v1 = 18, v2 = 7, v3 = n - 11 } codes)
 
             else if c >= 3 then
-                Array.push ( 17, 3, c - 3 ) codes
+                Array.pushLast { v1 = 17, v2 = 3, v3 = c - 3 } codes
 
             else
-                Array.append codes (Array.repeat c ( 0, 0, 0 ))
+                Array.append codes (Array.repeat c { v1 = 0, v2 = 0, v3 = 0 })
 
         loop2 r c codes =
             if c >= 3 then
@@ -391,16 +391,16 @@ calculateCodes runLengths =
                     n =
                         min 6 c
                 in
-                loop2 r (c - n) (Array.push ( 16, 2, n - 3 ) codes)
+                loop2 r (c - n) (Array.pushLast { v1 = 16, v2 = 2, v3 = n - 3 } codes)
 
             else
-                Array.append codes (Array.repeat c ( r.value, 0, 0 ))
+                Array.append codes (Array.repeat c { v1 = r.value, v2 = 0, v3 = 0 })
 
         folder r codes =
             if r.value == 0 then
                 loop1 r.count codes
 
             else
-                loop2 r (r.count - 1) (Array.push ( r.value, 0, 0 ) codes)
+                loop2 r (r.count - 1) (Array.pushLast { v1 = r.value, v2 = 0, v3 = 0 } codes)
     in
     Array.foldl folder Array.empty runLengths
