@@ -69,6 +69,7 @@ import Checksum.Crc32
 import Deflate.Internal as Internal
 import Inflate.Inflate as Inflate
 import LZ77
+import Math
 
 
 {-| Inflate (decode) data encoded with DEFLATE
@@ -183,7 +184,7 @@ deflateGZipWithOptions encoding buffer =
 
         encodedTrailer =
             [ Encode.unsignedInt32 LE (Checksum.Crc32.crc32 buffer)
-            , Encode.unsignedInt32 LE (Bytes.width buffer |> modBy 4294967296)
+            , Encode.unsignedInt32 LE (Bytes.length buffer |> Math.modBy 4294967296)
             ]
     in
     Encode.sequence (encodedHeader ++ [ Encode.bytes data ] ++ encodedTrailer)
@@ -282,8 +283,8 @@ deflateZlibWithOptions encoding buffer =
             Bitwise.shiftLeftBy 8 cmf + Bitwise.shiftLeftBy 6 compressionLevel
 
         flag =
-            if (check |> modBy 31) /= 0 then
-                Bitwise.shiftLeftBy 6 compressionLevel + (31 - (check |> modBy 31))
+            if (check |> Math.modBy 31) /= 0 then
+                Bitwise.shiftLeftBy 6 compressionLevel + (31 - (check |> Math.modBy 31))
 
             else
                 Bitwise.shiftLeftBy 6 compressionLevel
