@@ -1,6 +1,5 @@
 module Deflate.Internal exposing (compress, encodeDynamic, encodeRaw, encodeStatic)
 
-import Array exposing (Array)
 import Bitwise
 import ByteArray
 import Bytes exposing (Bytes, Endianness(..))
@@ -28,29 +27,29 @@ default_block_size =
 
 {-| Split `Bytes` into blocks
 -}
-chunks : Int -> Bytes -> List ( Bool, Bytes )
+chunks : Int -> Bytes -> Array { v1 : Bool, v2 : Bytes }
 chunks chunkSize buffer =
-    case Decode.decode (Decode.loop ( Bytes.width buffer, [] ) (chunksHelp chunkSize)) buffer of
+    case Decode.decode (Decode.loop { v1 = Bytes.length buffer, v2 = [] } (chunksHelp chunkSize)) buffer of
         Nothing ->
-            [ ( True, Encode.encode (Encode.sequence []) ) ]
+            [ { v1 = True, v2 = Encode.encode (Encode.sequence []) } ]
 
         Just [] ->
-            [ ( True, Encode.encode (Encode.sequence []) ) ]
+            [ { v1 = True, v2 = Encode.encode (Encode.sequence []) } ]
 
         Just value ->
             value
 
 
-chunksHelp chunkSize ( sizeRemaining, accum ) =
+chunksHelp chunkSize { v1 = sizeRemaining, v2 = accum } =
     if sizeRemaining == 0 then
         -- only happens when the input buffer is empty
         Decode.succeed (Decode.Done [])
 
     else if chunkSize >= sizeRemaining then
-        Decode.bytes sizeRemaining |> Decode.map (\new -> Done (List.reverse (( True, new ) :: accum)))
+        Decode.bytes sizeRemaining |> Decode.map (\new -> Done (Array.reverse (Array.pushFirst { v1 = True, v2 = new } accum)))
 
     else
-        Decode.bytes chunkSize |> Decode.map (\new -> Loop ( sizeRemaining - chunkSize, ( False, new ) :: accum ))
+        Decode.bytes chunkSize |> Decode.map (\new -> Loop { v1 = sizeRemaining - chunkSize, v2 = Array.pushFirst { v1 = False, v2 = new } accum })
 
 
 
@@ -60,14 +59,14 @@ chunksHelp chunkSize ( sizeRemaining, accum ) =
 encodeRaw : Bytes -> Bytes
 encodeRaw buffer =
     chunks (min max_non_compressed_block_size default_block_size) buffer
-        |> List.foldl (\chunk first -> first |> encodeRawBlock chunk) BitWriter.empty
+        |> Array.foldl (\chunk first -> first |> encodeRawBlock chunk) BitWriter.empty
         |> BitWriter.run
         |> Encode.sequence
         |> Encode.encode
 
 
-encodeRawBlock : ( Bool, Bytes ) -> BitWriter -> BitWriter
-encodeRawBlock ( isLastBlock, buffer ) bitWriter =
+encodeRawBlock : { v1 : Bool, v2 : Bytes } -> BitWriter -> BitWriter
+encodeRawBlock { v1 = isLastBlock, v2 = buffer } bitWriter =
     let
         byteArray =
             ByteArray.fromBytes buffer
@@ -95,17 +94,17 @@ encodeDynamic : Maybe Int -> Bytes -> Bytes
 encodeDynamic windowSize buffer =
     let
         encodedChunks =
-            List.map (encodeDynamicBlock windowSize) (chunks default_block_size buffer)
+            Array.map (encodeDynamicBlock windowSize) (chunks default_block_size buffer)
     in
-    List.foldl (\chunk first -> first |> chunk) BitWriter.empty encodedChunks
+    Array.foldl (\chunk first -> first |> chunk) BitWriter.empty encodedChunks
         |> BitWriter.flush
         |> BitWriter.run
         |> Encode.sequence
         |> Encode.encode
 
 
-encodeDynamicBlock : Maybe Int -> ( Bool, Bytes ) -> BitWriter -> BitWriter
-encodeDynamicBlock windowSize ( isLastBlock, buffer ) bitWriter =
+encodeDynamicBlock : Maybe Int -> { v1 : Bool, v2 : Bytes } -> BitWriter -> BitWriter
+encodeDynamicBlock windowSize { v1 = isLastBlock, v2 = buffer } bitWriter =
     bitWriter
         |> BitWriter.writeBit isLastBlock
         |> BitWriter.writeBits 2 2
@@ -136,15 +135,15 @@ encodeCompressDynamic maybeWindowSize buf bitWriter =
 encodeStatic : Maybe Int -> Bytes -> Bytes
 encodeStatic windowSize buffer =
     chunks default_block_size buffer
-        |> List.foldl (\chunk first -> first |> encodeStaticBlock windowSize chunk) BitWriter.empty
+        |> Array.foldl (\chunk first -> first |> encodeStaticBlock windowSize chunk) BitWriter.empty
         |> BitWriter.flush
         |> BitWriter.run
         |> Encode.sequence
         |> Encode.encode
 
 
-encodeStaticBlock : Maybe Int -> ( Bool, Bytes ) -> BitWriter -> BitWriter
-encodeStaticBlock windowSize ( isLastBlock, buffer ) bitWriter =
+encodeStaticBlock : Maybe Int -> { v1 : Bool, v2 : Bytes } -> BitWriter -> BitWriter
+encodeStaticBlock windowSize { v1 = isLastBlock, v2 = buffer } bitWriter =
     bitWriter
         |> BitWriter.writeBit isLastBlock
         |> BitWriter.writeBits 2 1
@@ -175,13 +174,13 @@ compress maybeWindowSize buf =
             buf
                 |> ByteArray.fromBytes
                 |> Array.map Symbol.Literal
-                |> Array.push Symbol.EndOfBlock
+                |> Array.pushLast Symbol.EndOfBlock
 
         Just windowSize ->
             buf
                 |> LZ77.encodeWithOptions { windowSize = windowSize }
                 |> Array.map codeToSymbol
-                |> Array.push Symbol.EndOfBlock
+                |> Array.pushLast Symbol.EndOfBlock
 
 
 codeToSymbol code =
