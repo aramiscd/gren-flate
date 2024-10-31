@@ -1,5 +1,7 @@
 # elm-flate
 
+__todo: update readme__
+
 An implementation of [DEFLATE](https://www.ietf.org/rfc/rfc1951.txt) compression.
 
 The deflate format is used in common file formats like gzip, png, and woff.
