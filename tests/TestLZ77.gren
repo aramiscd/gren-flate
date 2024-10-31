@@ -1,3 +1,4 @@
+-- todo
 module TestLZ77 exposing (suite)
 
 import Array

@@ -1,0 +1,40 @@
+module Main exposing ( main )
+
+import Test
+import Test.Runner.Node exposing ( run )
+
+import Example
+-- import Frankenstein
+-- import Issue1
+-- import Issue2
+-- import Issue2Data
+-- import Issue3
+-- import Issue4
+-- import TestBitReader
+-- import TestByteArray
+-- import TestChecksum
+-- import TestDeflate
+-- import TestInflate
+-- import TestLZ77
+-- import Text
+
+
+main =
+    run
+        ( Test.concat
+            [ Example.test
+         -- , Frankenstein.test
+         -- , Issue1.test
+         -- , Issue2.test
+         -- , Issue2Data.test
+         -- , Issue3.test
+         -- , Issue4.test
+         -- , TestBitReader.test
+         -- , TestByteArray.test
+         -- , TestChecksum.test
+         -- , TestDeflate.test
+         -- , TestInflate.test
+         -- , TestLZ77.test
+         -- , Text.test
+            ]
+        )

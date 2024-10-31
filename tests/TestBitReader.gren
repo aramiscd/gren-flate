@@ -1,3 +1,4 @@
+-- todo
 module TestBitReader exposing (suite)
 
 import ByteArray
